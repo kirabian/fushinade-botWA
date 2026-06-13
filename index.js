@@ -24,6 +24,11 @@ client.on('message_create', async msg => {
     // We use message_create to catch both our own messages and incoming messages
     // If you only want to respond to others, use `client.on('message', ...)`
     
+    if (msg.body === '.ping') {
+        msg.reply('pong! Bot is aktif dan merespon.');
+        return;
+    }
+
     // Command format: .schedule 08123456789 05.30 Besok meeting
     if (msg.body.startsWith('.schedule ')) {
         const textStr = msg.body.substring('.schedule '.length).trim();

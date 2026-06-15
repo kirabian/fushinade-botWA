@@ -14,15 +14,16 @@ const Groq = require('groq-sdk');
 // Inisialisasi Groq
 const groq = new Groq({ apiKey: process.env.GROQ_API_KEY || 'API_KEY_KOSONG' });
 
+const chatHistories = {};
 const groqModels = ["llama-3.3-70b-versatile", "llama3-8b-8192", "mixtral-8x7b-32768"];
 
-async function generateResilientGroqContent(prompt, retries = 2) {
+async function generateResilientGroqContent(messages, retries = 2) {
     let lastError = null;
 
     for (const modelName of groqModels) {
         try {
             const completion = await groq.chat.completions.create({
-                messages: [{ role: "user", content: prompt }],
+                messages: messages,
                 model: modelName,
             });
             return completion.choices[0]?.message?.content || "";
@@ -39,7 +40,7 @@ async function generateResilientGroqContent(prompt, retries = 2) {
             if (retries > 0) {
                 console.log(`Retrying after error: ${error.message} (${retries} attempts left)`);
                 await new Promise(resolve => setTimeout(resolve, 2000));
-                return generateResilientGroqContent(prompt, retries - 1);
+                return generateResilientGroqContent(messages, retries - 1);
             }
         }
     }
@@ -90,10 +91,33 @@ client.on('message_create', async msg => {
             return msg.reply('API Key Groq belum disetting di file .env. Silakan tambahkan GROQ_API_KEY.');
         }
         const prompt = text.replace(/^\.(ai|ask)\s+/, '');
+        const senderId = msg.from;
+
+        if (!chatHistories[senderId]) {
+            chatHistories[senderId] = [
+                { role: "system", content: "Kamu adalah asisten AI dari WhatsApp Bot yang cerdas, ramah, dan asyik diajak ngobrol. Selalu gunakan Bahasa Indonesia yang natural, santai namun sopan." }
+            ];
+        }
+
+        chatHistories[senderId].push({ role: "user", content: prompt });
+
+        // Batasi memory agar tidak kepanjangan (1 system + 9 obrolan terakhir)
+        if (chatHistories[senderId].length > 10) {
+            chatHistories[senderId].splice(1, 1);
+        }
+
         try {
-            const responseText = await generateResilientGroqContent(prompt);
+            const responseText = await generateResilientGroqContent(chatHistories[senderId]);
+            
+            chatHistories[senderId].push({ role: "assistant", content: responseText });
+            if (chatHistories[senderId].length > 10) {
+                chatHistories[senderId].splice(1, 1);
+            }
+
             msg.reply(responseText);
         } catch (error) {
+            // Hapus pesan user terakhir jika AI gagal menjawab (agar tidak rusak history-nya)
+            chatHistories[senderId].pop();
             console.error(error);
             if (error.message === "GROQ_QUOTA_EXCEEDED") {
                 msg.reply('Maaf, kuota API Groq (Limit Rate) Anda sedang habis. Silakan coba beberapa saat lagi.');

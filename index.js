@@ -9,65 +9,50 @@ const Parser = require('rss-parser');
 const rssParser = new Parser();
 const sharp = require('sharp');
 require('dotenv').config();
-const { GoogleGenerativeAI } = require('@google/generative-ai');
+const Groq = require('groq-sdk');
 
-// Inisialisasi Gemini
-const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || 'API_KEY_KOSONG');
+// Inisialisasi Groq
+const groq = new Groq({ apiKey: process.env.GROQ_API_KEY || 'API_KEY_KOSONG' });
 
-// Primary model (Stable/Production)
-const modelPrimary = genAI.getGenerativeModel({ model: "gemini-2.0-flash" });
-// Fallback model 1
-const modelFallback1 = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
-// Fallback model 2 (Lite/Experimental)
-const modelFallback2 = genAI.getGenerativeModel({ model: "gemini-pro" });
+const groqModels = ["llama-3.3-70b-versatile", "llama3-8b-8192", "mixtral-8x7b-32768"];
 
-async function generateResilientContent(prompt, retries = 2) {
-    const models = [modelPrimary, modelFallback1, modelFallback2];
+async function generateResilientGroqContent(prompt, retries = 2) {
     let lastError = null;
 
-    for (const model of models) {
+    for (const modelName of groqModels) {
         try {
-            return await model.generateContent(prompt);
+            const completion = await groq.chat.completions.create({
+                messages: [{ role: "user", content: prompt }],
+                model: modelName,
+            });
+            return completion.choices[0]?.message?.content || "";
         } catch (error) {
             lastError = error;
             const errorMsg = (error.message || "").toLowerCase();
-            const isOverloaded = errorMsg.includes("503") || errorMsg.includes("overloaded") || errorMsg.includes("high demand");
-            const isQuotaExceeded = errorMsg.includes("429") || errorMsg.includes("quota");
-            const isNotFound = errorMsg.includes("404") || errorMsg.includes("not found");
-
-            if (isQuotaExceeded) {
-                console.warn(`Model ${model.model} quota exceeded, trying next model...`);
-                continue; 
+            const isRateLimit = errorMsg.includes("429") || errorMsg.includes("rate limit");
+            
+            if (isRateLimit) {
+                console.warn(`Model ${modelName} rate limit exceeded, trying next model...`);
+                continue;
             }
 
-            if (isOverloaded) {
-                console.warn(`Model ${model.model} overloaded, trying next model...`);
-                continue; 
-            }
-
-            if (isNotFound) {
-                console.warn(`Model ${model.model} not found, trying next model...`);
-                continue; 
-            }
-
-            // For other errors, retry this model if retries left
             if (retries > 0) {
                 console.log(`Retrying after error: ${error.message} (${retries} attempts left)`);
                 await new Promise(resolve => setTimeout(resolve, 2000));
-                return generateResilientContent(prompt, retries - 1);
+                return generateResilientGroqContent(prompt, retries - 1);
             }
         }
     }
 
     if (lastError) {
         const lastErrorMsg = (lastError.message || "").toLowerCase();
-        if (lastErrorMsg.includes("429") || lastErrorMsg.includes("quota")) {
-            throw new Error("GEMINI_QUOTA_EXCEEDED");
+        if (lastErrorMsg.includes("429") || lastErrorMsg.includes("rate limit")) {
+            throw new Error("GROQ_QUOTA_EXCEEDED");
         }
         throw lastError;
     }
-    
-    throw new Error("Failed to generate content with all available models.");
+
+    throw new Error("Failed to generate content with all available Groq models.");
 }
 
 const client = new Client({
@@ -99,20 +84,19 @@ client.on('message_create', async msg => {
         return;
     }
 
-    // 1. AI Chatbot (Gemini)
+    // 1. AI Chatbot (Groq)
     if (text.startsWith('.ai ') || text.startsWith('.ask ')) {
-        if (!process.env.GEMINI_API_KEY) {
-            return msg.reply('API Key Gemini belum disetting di file .env. Silakan tambahkan GEMINI_API_KEY.');
+        if (!process.env.GROQ_API_KEY) {
+            return msg.reply('API Key Groq belum disetting di file .env. Silakan tambahkan GROQ_API_KEY.');
         }
         const prompt = text.replace(/^\.(ai|ask)\s+/, '');
         try {
-            const result = await generateResilientContent(prompt);
-            const response = await result.response;
-            msg.reply(response.text());
+            const responseText = await generateResilientGroqContent(prompt);
+            msg.reply(responseText);
         } catch (error) {
             console.error(error);
-            if (error.message === "GEMINI_QUOTA_EXCEEDED") {
-                msg.reply('Maaf, kuota API Gemini (Limit Rate) Anda sedang habis. Silakan coba beberapa saat lagi.');
+            if (error.message === "GROQ_QUOTA_EXCEEDED") {
+                msg.reply('Maaf, kuota API Groq (Limit Rate) Anda sedang habis. Silakan coba beberapa saat lagi.');
             } else {
                 msg.reply('Maaf, AI sedang mengalami gangguan / tidak ada model yang tersedia.');
             }

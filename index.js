@@ -7,6 +7,7 @@ const axios = require('axios');
 const weather = require('weather-js');
 const Parser = require('rss-parser');
 const rssParser = new Parser();
+const sharp = require('sharp');
 require('dotenv').config();
 const { GoogleGenerativeAI } = require('@google/generative-ai');
 
@@ -49,7 +50,7 @@ client.on('message_create', async msg => {
         }
         const prompt = text.replace(/^\.(ai|ask)\s+/, '');
         try {
-            const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
+            const model = genAI.getGenerativeModel({ model: "gemini-pro" });
             const result = await model.generateContent(prompt);
             const response = await result.response;
             msg.reply(response.text());
@@ -183,10 +184,15 @@ client.on('message_create', async msg => {
                 const media = await quotedMsg.downloadMedia();
                 if (media) {
                     msg.reply('⏳ Mengubah stiker ke gambar...');
-                    // Untuk 4K HD, buffer gambar ini dikirim ke layanan Upscaler API (contoh: Replicate).
-                    // Disini kita memproses pengubahan dasar tanpa upscaling.
-                    media.filename = 'image.png'; 
-                    client.sendMessage(msg.from, media, { sendMediaAsSticker: false, caption: 'Ini gambar dari stiker (Untuk 4K HD butuh API Key khusus).' });
+                    try {
+                        const imageBuffer = Buffer.from(media.data, 'base64');
+                        const convertedBuffer = await sharp(imageBuffer).png().toBuffer();
+                        const newMedia = new MessageMedia('image/png', convertedBuffer.toString('base64'), 'image.png');
+                        client.sendMessage(msg.from, newMedia, { sendMediaAsSticker: false, caption: 'Ini gambar dari stiker.' });
+                    } catch (error) {
+                        console.error('Error konversi gambar:', error);
+                        msg.reply('Maaf, gagal mengubah stiker menjadi gambar.');
+                    }
                 }
             } else {
                 msg.reply('Harap reply sebuah stiker dengan command .toimg');

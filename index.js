@@ -1,7 +1,17 @@
-const { Client, LocalAuth } = require('whatsapp-web.js');
+const { Client, LocalAuth, MessageMedia } = require('whatsapp-web.js');
 const qrcode = require('qrcode-terminal');
 const schedule = require('node-schedule');
 const moment = require('moment-timezone');
+const fs = require('fs');
+const axios = require('axios');
+const weather = require('weather-js');
+const Parser = require('rss-parser');
+const rssParser = new Parser();
+require('dotenv').config();
+const { GoogleGenerativeAI } = require('@google/generative-ai');
+
+// Inisialisasi Gemini
+const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || 'API_KEY_KOSONG');
 
 const client = new Client({
     authStrategy: new LocalAuth(), // Saves session so you don't have to scan QR every time
@@ -24,8 +34,166 @@ client.on('message_create', async msg => {
     // We use message_create to catch both our own messages and incoming messages
     // If you only want to respond to others, use `client.on('message', ...)`
     
-    if (msg.body === '.ping') {
+    const text = msg.body;
+    const sender = msg.from;
+
+    if (text === '.ping') {
         msg.reply('pong! Bot is aktif dan merespon.');
+        return;
+    }
+
+    // 1. AI Chatbot (Gemini)
+    if (text.startsWith('.ai ') || text.startsWith('.ask ')) {
+        if (!process.env.GEMINI_API_KEY) {
+            return msg.reply('API Key Gemini belum disetting di file .env. Silakan tambahkan GEMINI_API_KEY.');
+        }
+        const prompt = text.replace(/^\.(ai|ask)\s+/, '');
+        try {
+            const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
+            const result = await model.generateContent(prompt);
+            const response = await result.response;
+            msg.reply(response.text());
+        } catch (error) {
+            console.error(error);
+            msg.reply('Maaf, AI sedang mengalami gangguan.');
+        }
+        return;
+    }
+
+    // 2. Sticker Maker
+    if (text === '.sticker') {
+        if (msg.hasMedia) {
+            const media = await msg.downloadMedia();
+            if (media) {
+                client.sendMessage(msg.from, media, { sendMediaAsSticker: true });
+            }
+        } else if (msg.hasQuotedMsg) {
+            const quotedMsg = await msg.getQuotedMessage();
+            if (quotedMsg.hasMedia) {
+                const media = await quotedMsg.downloadMedia();
+                if (media) {
+                    client.sendMessage(msg.from, media, { sendMediaAsSticker: true });
+                }
+            } else {
+                msg.reply('Kirim gambar dengan caption .sticker atau reply gambar dengan .sticker');
+            }
+        } else {
+            msg.reply('Kirim gambar dengan caption .sticker atau reply gambar dengan .sticker');
+        }
+        return;
+    }
+
+    // 3. To-Do List
+    if (text.startsWith('.catat ')) {
+        const item = text.replace('.catat ', '').trim();
+        let todos = {};
+        if (fs.existsSync('./todos.json')) {
+            todos = JSON.parse(fs.readFileSync('./todos.json'));
+        }
+        if (!todos[sender]) todos[sender] = [];
+        todos[sender].push(item);
+        fs.writeFileSync('./todos.json', JSON.stringify(todos, null, 2));
+        msg.reply(`Catatan ditambahkan! Ketik .catatan untuk melihat list.`);
+        return;
+    }
+
+    if (text === '.catatan') {
+        let todos = {};
+        if (fs.existsSync('./todos.json')) {
+            todos = JSON.parse(fs.readFileSync('./todos.json'));
+        }
+        if (!todos[sender] || todos[sender].length === 0) {
+            return msg.reply('Kamu tidak punya catatan.');
+        }
+        let replyTxt = '*Daftar Catatanmu:*\n';
+        todos[sender].forEach((item, index) => {
+            replyTxt += `${index + 1}. ${item}\n`;
+        });
+        replyTxt += '\n_(Ketik .hapuscatatan <nomor> untuk menghapus)_';
+        msg.reply(replyTxt);
+        return;
+    }
+
+    if (text.startsWith('.hapuscatatan ')) {
+        const idx = parseInt(text.replace('.hapuscatatan ', '').trim()) - 1;
+        let todos = {};
+        if (fs.existsSync('./todos.json')) {
+            todos = JSON.parse(fs.readFileSync('./todos.json'));
+        }
+        if (!todos[sender] || todos[sender].length === 0 || isNaN(idx) || idx < 0 || idx >= todos[sender].length) {
+            return msg.reply('Nomor catatan tidak valid.');
+        }
+        const removed = todos[sender].splice(idx, 1);
+        fs.writeFileSync('./todos.json', JSON.stringify(todos, null, 2));
+        msg.reply(`Catatan "${removed}" berhasil dihapus.`);
+        return;
+    }
+
+    // 4. Info Cuaca & Berita
+    if (text.startsWith('.cuaca ')) {
+        const city = text.replace('.cuaca ', '').trim();
+        weather.find({search: city, degreeType: 'C'}, function(err, result) {
+            if(err || result.length === 0) {
+                return msg.reply('Maaf, kota tidak ditemukan.');
+            }
+            const current = result[0].current;
+            msg.reply(`*Cuaca di ${current.observationpoint}*\nSuhu: ${current.temperature}°C\nKondisi: ${current.skytext}\nKelembapan: ${current.humidity}%`);
+        });
+        return;
+    }
+
+    if (text === '.berita') {
+        try {
+            const feed = await rssParser.parseURL('https://www.antaranews.com/rss/terkini.xml');
+            let replyTxt = '*Berita Terkini (Antara News):*\n\n';
+            for (let i = 0; i < 5 && i < feed.items.length; i++) {
+                replyTxt += `📰 *${feed.items[i].title}*\n${feed.items[i].link}\n\n`;
+            }
+            msg.reply(replyTxt);
+        } catch (error) {
+            console.error(error);
+            msg.reply('Maaf, gagal mengambil berita.');
+        }
+        return;
+    }
+
+    // 5. Downloader (Template)
+    if (text.startsWith('.tiktok ') || text.startsWith('.ig ') || text.startsWith('.yt ')) {
+        const link = text.split(' ')[1];
+        if (!link) return msg.reply('Harap sertakan link videonya.');
+        
+        msg.reply('⏳ Fitur downloader membutuhkan API khusus yang belum dikonfigurasi. Ini adalah template respons.');
+        // Contoh implementasi (Butuh API endpoint):
+        // try {
+        //     const res = await axios.get(`https://api.example.com/download?url=${link}`);
+        //     const mediaUrl = res.data.url;
+        //     const media = await MessageMedia.fromUrl(mediaUrl);
+        //     client.sendMessage(msg.from, media, { caption: 'Ini videonya!' });
+        // } catch (e) {
+        //     msg.reply('Gagal mendownload.');
+        // }
+        return;
+    }
+
+    // 6. Sticker to Image (HD Upscale Template)
+    if (text === '.toimg') {
+        if (msg.hasQuotedMsg) {
+            const quotedMsg = await msg.getQuotedMessage();
+            if (quotedMsg.hasMedia && quotedMsg.type === 'sticker') {
+                const media = await quotedMsg.downloadMedia();
+                if (media) {
+                    msg.reply('⏳ Mengubah stiker ke gambar...');
+                    // Untuk 4K HD, buffer gambar ini dikirim ke layanan Upscaler API (contoh: Replicate).
+                    // Disini kita memproses pengubahan dasar tanpa upscaling.
+                    media.filename = 'image.png'; 
+                    client.sendMessage(msg.from, media, { sendMediaAsSticker: false, caption: 'Ini gambar dari stiker (Untuk 4K HD butuh API Key khusus).' });
+                }
+            } else {
+                msg.reply('Harap reply sebuah stiker dengan command .toimg');
+            }
+        } else {
+            msg.reply('Harap reply sebuah stiker dengan command .toimg');
+        }
         return;
     }
 

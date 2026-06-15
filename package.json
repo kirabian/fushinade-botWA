@@ -11,9 +11,14 @@
   "license": "ISC",
   "type": "commonjs",
   "dependencies": {
+    "@google/generative-ai": "^0.24.1",
+    "axios": "^1.18.0",
+    "dotenv": "^17.4.2",
     "moment-timezone": "^0.6.2",
     "node-schedule": "^2.1.1",
     "qrcode-terminal": "^0.12.0",
+    "rss-parser": "^3.13.0",
+    "weather-js": "^2.0.0",
     "whatsapp-web.js": "^1.34.7"
   }
 }

@@ -94,8 +94,9 @@ client.on('message_create', async msg => {
         const senderId = msg.from;
 
         if (!chatHistories[senderId]) {
+            const currentDate = moment().tz('Asia/Jakarta').format('DD MMMM YYYY');
             chatHistories[senderId] = [
-                { role: "system", content: "Kamu adalah asisten AI dari WhatsApp Bot yang cerdas, ramah, dan asyik diajak ngobrol. Selalu gunakan Bahasa Indonesia yang natural, santai namun sopan." }
+                { role: "system", content: `Kamu adalah asisten AI dari WhatsApp Bot yang cerdas, ramah, dan asyik diajak ngobrol. Selalu gunakan Bahasa Indonesia yang natural, santai namun sopan. Sebagai informasi tambahan: Hari ini adalah tanggal ${currentDate}. Presiden Republik Indonesia saat ini adalah Prabowo Subianto (periode 2024-2029) dengan Wakil Presiden Gibran Rakabuming Raka.` }
             ];
         }
 

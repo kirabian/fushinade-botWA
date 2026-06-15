@@ -14,6 +14,62 @@ const { GoogleGenerativeAI } = require('@google/generative-ai');
 // Inisialisasi Gemini
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || 'API_KEY_KOSONG');
 
+// Primary model (Stable/Production)
+const modelPrimary = genAI.getGenerativeModel({ model: "gemini-2.0-flash" });
+// Fallback model 1
+const modelFallback1 = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
+// Fallback model 2 (Lite/Experimental)
+const modelFallback2 = genAI.getGenerativeModel({ model: "gemini-pro" });
+
+async function generateResilientContent(prompt, retries = 2) {
+    const models = [modelPrimary, modelFallback1, modelFallback2];
+    let lastError = null;
+
+    for (const model of models) {
+        try {
+            return await model.generateContent(prompt);
+        } catch (error) {
+            lastError = error;
+            const errorMsg = (error.message || "").toLowerCase();
+            const isOverloaded = errorMsg.includes("503") || errorMsg.includes("overloaded") || errorMsg.includes("high demand");
+            const isQuotaExceeded = errorMsg.includes("429") || errorMsg.includes("quota");
+            const isNotFound = errorMsg.includes("404") || errorMsg.includes("not found");
+
+            if (isQuotaExceeded) {
+                console.warn(`Model ${model.model} quota exceeded, trying next model...`);
+                continue; 
+            }
+
+            if (isOverloaded) {
+                console.warn(`Model ${model.model} overloaded, trying next model...`);
+                continue; 
+            }
+
+            if (isNotFound) {
+                console.warn(`Model ${model.model} not found, trying next model...`);
+                continue; 
+            }
+
+            // For other errors, retry this model if retries left
+            if (retries > 0) {
+                console.log(`Retrying after error: ${error.message} (${retries} attempts left)`);
+                await new Promise(resolve => setTimeout(resolve, 2000));
+                return generateResilientContent(prompt, retries - 1);
+            }
+        }
+    }
+
+    if (lastError) {
+        const lastErrorMsg = (lastError.message || "").toLowerCase();
+        if (lastErrorMsg.includes("429") || lastErrorMsg.includes("quota")) {
+            throw new Error("GEMINI_QUOTA_EXCEEDED");
+        }
+        throw lastError;
+    }
+    
+    throw new Error("Failed to generate content with all available models.");
+}
+
 const client = new Client({
     authStrategy: new LocalAuth(), // Saves session so you don't have to scan QR every time
     puppeteer: {
@@ -50,30 +106,34 @@ client.on('message_create', async msg => {
         }
         const prompt = text.replace(/^\.(ai|ask)\s+/, '');
         try {
-            const model = genAI.getGenerativeModel({ model: "gemini-pro" });
-            const result = await model.generateContent(prompt);
+            const result = await generateResilientContent(prompt);
             const response = await result.response;
             msg.reply(response.text());
         } catch (error) {
             console.error(error);
-            msg.reply('Maaf, AI sedang mengalami gangguan.');
+            if (error.message === "GEMINI_QUOTA_EXCEEDED") {
+                msg.reply('Maaf, kuota API Gemini (Limit Rate) Anda sedang habis. Silakan coba beberapa saat lagi.');
+            } else {
+                msg.reply('Maaf, AI sedang mengalami gangguan / tidak ada model yang tersedia.');
+            }
         }
         return;
     }
 
     // 2. Sticker Maker
     if (text === '.sticker') {
+        const chat = await msg.getChat();
         if (msg.hasMedia) {
             const media = await msg.downloadMedia();
             if (media) {
-                client.sendMessage(msg.from, media, { sendMediaAsSticker: true });
+                chat.sendMessage(media, { sendMediaAsSticker: true });
             }
         } else if (msg.hasQuotedMsg) {
             const quotedMsg = await msg.getQuotedMessage();
             if (quotedMsg.hasMedia) {
                 const media = await quotedMsg.downloadMedia();
                 if (media) {
-                    client.sendMessage(msg.from, media, { sendMediaAsSticker: true });
+                    chat.sendMessage(media, { sendMediaAsSticker: true });
                 }
             } else {
                 msg.reply('Kirim gambar dengan caption .sticker atau reply gambar dengan .sticker');
@@ -188,7 +248,8 @@ client.on('message_create', async msg => {
                         const imageBuffer = Buffer.from(media.data, 'base64');
                         const convertedBuffer = await sharp(imageBuffer).png().toBuffer();
                         const newMedia = new MessageMedia('image/png', convertedBuffer.toString('base64'), 'image.png');
-                        client.sendMessage(msg.from, newMedia, { sendMediaAsSticker: false, caption: 'Ini gambar dari stiker.' });
+                        const chat = await msg.getChat();
+                        chat.sendMessage(newMedia, { sendMediaAsSticker: false, caption: 'Ini gambar dari stiker.' });
                     } catch (error) {
                         console.error('Error konversi gambar:', error);
                         msg.reply('Maaf, gagal mengubah stiker menjadi gambar.');

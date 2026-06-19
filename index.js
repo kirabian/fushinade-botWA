@@ -94,7 +94,8 @@ async function startBot() {
   const sock = makeWASocket({
     auth: state,
     logger: pino({ level: 'silent' }),
-    printQRInTerminal: false
+    printQRInTerminal: false,
+    browser: ['Ubuntu', 'Chrome', '20.0.04']
   });
 
   if (waNumber) {

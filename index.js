@@ -1,25 +1,30 @@
-const { Client, LocalAuth, MessageMedia, List, Poll } = require('whatsapp-web.js');
-const qrcode = require('qrcode-terminal');
-const schedule = require('node-schedule');
-const moment = require('moment-timezone');
-const fs = require('fs');
-const axios = require('axios');
-const weather = require('weather-js');
-const Parser = require('rss-parser');
-const rssParser = new Parser();
-const sharp = require('sharp');
-require('dotenv').config();
-const Groq = require('groq-sdk');
+import { makeWASocket, useMultiFileAuthState, DisconnectReason } from 'atexovi-baileys';
+import pino from 'pino';
+import fs from 'fs';
+import path from 'path';
+import inquirer from 'inquirer';
+import chalk from 'chalk';
+import figlet from 'figlet';
+import dotenv from 'dotenv';
+import moment from 'moment-timezone';
+import schedule from 'node-schedule';
+import weather from 'weather-js';
+import Parser from 'rss-parser';
+import sharp from 'sharp';
+import Groq from 'groq-sdk';
+import { fileURLToPath } from 'url';
+
+dotenv.config();
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 // Inisialisasi Groq
 const groq = new Groq({ apiKey: process.env.GROQ_API_KEY || 'API_KEY_KOSONG' });
-
 const chatHistories = {};
 const groqModels = ["llama-3.3-70b-versatile", "llama3-8b-8192", "mixtral-8x7b-32768"];
 
 async function generateResilientGroqContent(messages, retries = 2) {
     let lastError = null;
-
     for (const modelName of groqModels) {
         try {
             const completion = await groq.chat.completions.create({
@@ -36,7 +41,6 @@ async function generateResilientGroqContent(messages, retries = 2) {
                 console.warn(`Model ${modelName} rate limit exceeded, trying next model...`);
                 continue;
             }
-
             if (retries > 0) {
                 console.log(`Retrying after error: ${error.message} (${retries} attempts left)`);
                 await new Promise(resolve => setTimeout(resolve, 2000));
@@ -44,7 +48,6 @@ async function generateResilientGroqContent(messages, retries = 2) {
             }
         }
     }
-
     if (lastError) {
         const lastErrorMsg = (lastError.message || "").toLowerCase();
         if (lastErrorMsg.includes("429") || lastErrorMsg.includes("rate limit")) {
@@ -52,49 +55,78 @@ async function generateResilientGroqContent(messages, retries = 2) {
         }
         throw lastError;
     }
-
     throw new Error("Failed to generate content with all available Groq models.");
 }
 
-const client = new Client({
-    authStrategy: new LocalAuth(), // Saves session so you don't have to scan QR every time
-    puppeteer: {
-        args: ['--no-sandbox', '--disable-setuid-sandbox'] // Good for compatibility
+const authDir = path.join(__dirname, 'session');
+
+function showBanner() {
+  console.clear();
+  const text = figlet.textSync('Fushinade Bot', { font: 'Slant' });
+  console.log(chalk.cyanBright(text));
+}
+
+async function startBot() {
+  showBanner();
+  const { state, saveCreds } = await useMultiFileAuthState(authDir);
+  const sock = makeWASocket({
+    auth: state,
+    logger: pino({ level: 'silent' }),
+    printQRInTerminal: false
+  });
+
+  sock.ev.on('connection.update', async (update) => {
+    const { connection, lastDisconnect } = update;
+    if (connection === 'open') {
+      console.log(chalk.greenBright('✅ Connected to WhatsApp!'));
+    } else if (connection === 'close') {
+      const reason = lastDisconnect?.error?.output?.statusCode;
+      const shouldReconnect = reason !== DisconnectReason.loggedOut;
+      if (shouldReconnect) {
+        console.log(chalk.yellow('🔁 Connection lost. Reconnecting...'));
+        startBot();
+      } else {
+        console.log(chalk.red('❌ Invalid session. Please delete the session folder and try again.'));
+      }
     }
-});
+  });
 
-client.on('qr', (qr) => {
-    // Generate and scan this code with your phone
-    qrcode.generate(qr, { small: true });
-    console.log('Scan the QR code above with WhatsApp!');
-});
+  sock.ev.on('creds.update', saveCreds);
+  
+  sock.ev.on('messages.upsert', async m => {
+    const msg = m.messages?.[0];
+    if (!msg || msg.key.fromMe) return;
 
-client.on('ready', () => {
-    console.log('Client is ready!');
-});
-
-client.on('message_create', async msg => {
-    // We use message_create to catch both our own messages and incoming messages
-    // If you only want to respond to others, use `client.on('message', ...)`
+    const from = msg.key.remoteJid;
+    const body = msg.message?.conversation || msg.message?.extendedTextMessage?.text || msg.message?.imageMessage?.caption || "";
+    const text = body.trim();
     
-    const text = msg.body;
-    const sender = msg.from;
+    // Check if the message is a button response
+    let rowId;
+    try {
+      if (msg.message?.interactiveResponseMessage?.nativeFlowResponseMessage) {
+        rowId = JSON.parse(msg.message.interactiveResponseMessage.nativeFlowResponseMessage.paramsJson).id;
+      } else if (msg.message?.listResponseMessage?.singleSelectReply?.selectedRowId) {
+        rowId = msg.message.listResponseMessage.singleSelectReply.selectedRowId;
+      } else if (msg.message?.buttonsResponseMessage?.selectedButtonId) {
+        rowId = msg.message.buttonsResponseMessage.selectedButtonId;
+      }
+    } catch {}
 
-    if (text === '.ping') {
-        msg.reply('pong! Bot is aktif dan merespon.');
+    const command = rowId ? rowId : text;
+
+    if (command === '.ping') {
+        await sock.sendMessage(from, { text: 'pong! Bot is aktif dan merespon.' }, { quoted: msg });
         return;
     }
 
-    // 0. Menu Utama
-    if (text === '.menu') {
+    if (command === '.menu') {
         const menuText = `*🤖 FUSHINADE BOT MENU 🤖*\n\n` +
             `*1. 🤖 AI & Chatbot*\n` +
             `   ➔ .ai <pertanyaan>\n` +
             `   ➔ .ask <pertanyaan>\n\n` +
             `*2. 🛠️ Utilities*\n` +
             `   ➔ .ping\n` +
-            `   ➔ .sticker (Kirim/reply gambar)\n` +
-            `   ➔ .toimg (Reply stiker)\n` +
             `   ➔ .schedule <no> <jam> <pesan>\n\n` +
             `*3. 📝 Catatan (To-Do)*\n` +
             `   ➔ .catat <isi catatan>\n` +
@@ -102,25 +134,40 @@ client.on('message_create', async msg => {
             `   ➔ .hapuscatatan <nomor>\n\n` +
             `*4. 🌐 Info & Berita*\n` +
             `   ➔ .cuaca <kota>\n` +
-            `   ➔ .berita\n\n` +
-            `*5. ⬇️ Downloader*\n` +
-            `   ➔ .tiktok <link>\n` +
-            `   ➔ .ig <link>\n` +
-            `   ➔ .yt <link>\n`;
+            `   ➔ .berita\n`;
 
-        // Mengirim Polling sebagai alternatif "Interactive Button"
-        const poll = new Poll(menuText + '\n\n*Pilih menu cepat di bawah ini:*', ['.ping', '.berita', '.catatan'], { allowMultipleAnswers: false });
-        await client.sendMessage(msg.from, poll);
+        await sock.sendMessage(from, {
+            text: menuText,
+            interactiveButtons: [
+              {
+                name: 'quick_reply',
+                buttonParamsJson: JSON.stringify({
+                  display_text: 'Ping Bot',
+                  id: '.ping'
+                })
+              },
+              {
+                name: 'quick_reply',
+                buttonParamsJson: JSON.stringify({
+                  display_text: 'Berita Terkini',
+                  id: '.berita'
+                })
+              },
+              {
+                name: 'quick_reply',
+                buttonParamsJson: JSON.stringify({
+                  display_text: 'Lihat Catatan',
+                  id: '.catatan'
+                })
+              }
+            ]
+        });
         return;
     }
 
-    // 1. AI Chatbot (Groq)
-    if (text.startsWith('.ai ') || text.startsWith('.ask ')) {
-        if (!process.env.GROQ_API_KEY) {
-            return msg.reply('API Key Groq belum disetting di file .env. Silakan tambahkan GROQ_API_KEY.');
-        }
-        const prompt = text.replace(/^\.(ai|ask)\s+/, '');
-        const senderId = msg.from;
+    if (command.startsWith('.ai ') || command.startsWith('.ask ')) {
+        const prompt = command.replace(/^\.(ai|ask)\s+/, '');
+        const senderId = from;
 
         if (!chatHistories[senderId]) {
             const currentDate = moment().tz('Asia/Jakarta').format('DD MMMM YYYY');
@@ -130,295 +177,123 @@ client.on('message_create', async msg => {
         }
 
         chatHistories[senderId].push({ role: "user", content: prompt });
-
-        // Batasi memory agar tidak kepanjangan (1 system + 9 obrolan terakhir)
-        if (chatHistories[senderId].length > 10) {
-            chatHistories[senderId].splice(1, 1);
-        }
+        if (chatHistories[senderId].length > 10) chatHistories[senderId].splice(1, 1);
 
         try {
             const responseText = await generateResilientGroqContent(chatHistories[senderId]);
-            
             chatHistories[senderId].push({ role: "assistant", content: responseText });
-            if (chatHistories[senderId].length > 10) {
-                chatHistories[senderId].splice(1, 1);
-            }
-
-            msg.reply(responseText);
+            if (chatHistories[senderId].length > 10) chatHistories[senderId].splice(1, 1);
+            await sock.sendMessage(from, { text: responseText }, { quoted: msg });
         } catch (error) {
-            // Hapus pesan user terakhir jika AI gagal menjawab (agar tidak rusak history-nya)
             chatHistories[senderId].pop();
             console.error(error);
             if (error.message === "GROQ_QUOTA_EXCEEDED") {
-                msg.reply('Maaf, kuota API Groq (Limit Rate) Anda sedang habis. Silakan coba beberapa saat lagi.');
+                await sock.sendMessage(from, { text: 'Maaf, kuota API Groq (Limit Rate) Anda sedang habis. Silakan coba beberapa saat lagi.' });
             } else {
-                msg.reply('Maaf, AI sedang mengalami gangguan / tidak ada model yang tersedia.');
+                await sock.sendMessage(from, { text: 'Maaf, AI sedang mengalami gangguan / tidak ada model yang tersedia.' });
             }
         }
         return;
     }
 
-    // 2. Sticker Maker
-    if (text === '.sticker') {
-        const chat = await msg.getChat();
-        if (msg.hasMedia) {
-            const media = await msg.downloadMedia();
-            if (media) {
-                chat.sendMessage(media, { sendMediaAsSticker: true });
-            }
-        } else if (msg.hasQuotedMsg) {
-            const quotedMsg = await msg.getQuotedMessage();
-            if (quotedMsg.hasMedia) {
-                const media = await quotedMsg.downloadMedia();
-                if (media) {
-                    chat.sendMessage(media, { sendMediaAsSticker: true });
-                }
-            } else {
-                msg.reply('Kirim gambar dengan caption .sticker atau reply gambar dengan .sticker');
-            }
-        } else {
-            msg.reply('Kirim gambar dengan caption .sticker atau reply gambar dengan .sticker');
-        }
-        return;
-    }
-
-    // 3. To-Do List
-    if (text.startsWith('.catat ')) {
-        const item = text.replace('.catat ', '').trim();
+    // Catatan
+    if (command.startsWith('.catat ')) {
+        const item = command.replace('.catat ', '').trim();
         let todos = {};
-        if (fs.existsSync('./todos.json')) {
-            todos = JSON.parse(fs.readFileSync('./todos.json'));
-        }
-        if (!todos[sender]) todos[sender] = [];
-        todos[sender].push(item);
+        if (fs.existsSync('./todos.json')) todos = JSON.parse(fs.readFileSync('./todos.json'));
+        if (!todos[from]) todos[from] = [];
+        todos[from].push(item);
         fs.writeFileSync('./todos.json', JSON.stringify(todos, null, 2));
-        msg.reply(`Catatan ditambahkan! Ketik .catatan untuk melihat list.`);
+        await sock.sendMessage(from, { text: `Catatan ditambahkan! Ketik .catatan untuk melihat list.` }, { quoted: msg });
         return;
     }
 
-    if (text === '.catatan') {
+    if (command === '.catatan') {
         let todos = {};
-        if (fs.existsSync('./todos.json')) {
-            todos = JSON.parse(fs.readFileSync('./todos.json'));
-        }
-        if (!todos[sender] || todos[sender].length === 0) {
-            return msg.reply('Kamu tidak punya catatan.');
+        if (fs.existsSync('./todos.json')) todos = JSON.parse(fs.readFileSync('./todos.json'));
+        if (!todos[from] || todos[from].length === 0) {
+            await sock.sendMessage(from, { text: 'Kamu tidak punya catatan.' }, { quoted: msg });
+            return;
         }
         let replyTxt = '*Daftar Catatanmu:*\n';
-        todos[sender].forEach((item, index) => {
-            replyTxt += `${index + 1}. ${item}\n`;
-        });
+        todos[from].forEach((item, index) => { replyTxt += `${index + 1}. ${item}\n`; });
         replyTxt += '\n_(Ketik .hapuscatatan <nomor> untuk menghapus)_';
-        msg.reply(replyTxt);
+        await sock.sendMessage(from, { text: replyTxt }, { quoted: msg });
         return;
     }
 
-    if (text.startsWith('.hapuscatatan ')) {
-        const idx = parseInt(text.replace('.hapuscatatan ', '').trim()) - 1;
+    if (command.startsWith('.hapuscatatan ')) {
+        const idx = parseInt(command.replace('.hapuscatatan ', '').trim()) - 1;
         let todos = {};
-        if (fs.existsSync('./todos.json')) {
-            todos = JSON.parse(fs.readFileSync('./todos.json'));
+        if (fs.existsSync('./todos.json')) todos = JSON.parse(fs.readFileSync('./todos.json'));
+        if (!todos[from] || todos[from].length === 0 || isNaN(idx) || idx < 0 || idx >= todos[from].length) {
+            await sock.sendMessage(from, { text: 'Nomor catatan tidak valid.' }, { quoted: msg });
+            return;
         }
-        if (!todos[sender] || todos[sender].length === 0 || isNaN(idx) || idx < 0 || idx >= todos[sender].length) {
-            return msg.reply('Nomor catatan tidak valid.');
-        }
-        const removed = todos[sender].splice(idx, 1);
+        const removed = todos[from].splice(idx, 1);
         fs.writeFileSync('./todos.json', JSON.stringify(todos, null, 2));
-        msg.reply(`Catatan "${removed}" berhasil dihapus.`);
+        await sock.sendMessage(from, { text: `Catatan "${removed}" berhasil dihapus.` }, { quoted: msg });
         return;
     }
 
-    // 4. Info Cuaca & Berita
-    if (text.startsWith('.cuaca ')) {
-        const city = text.replace('.cuaca ', '').trim();
-        weather.find({search: city, degreeType: 'C'}, function(err, result) {
+    if (command.startsWith('.cuaca ')) {
+        const city = command.replace('.cuaca ', '').trim();
+        weather.find({search: city, degreeType: 'C'}, async function(err, result) {
             if(err || result.length === 0) {
-                return msg.reply('Maaf, kota tidak ditemukan.');
+                await sock.sendMessage(from, { text: 'Maaf, kota tidak ditemukan.' });
+                return;
             }
             const current = result[0].current;
-            msg.reply(`*Cuaca di ${current.observationpoint}*\nSuhu: ${current.temperature}°C\nKondisi: ${current.skytext}\nKelembapan: ${current.humidity}%`);
+            await sock.sendMessage(from, { text: `*Cuaca di ${current.observationpoint}*\nSuhu: ${current.temperature}°C\nKondisi: ${current.skytext}\nKelembapan: ${current.humidity}%` });
         });
         return;
     }
 
-    if (text === '.berita') {
+    if (command === '.berita') {
         try {
+            const rssParser = new Parser();
             const feed = await rssParser.parseURL('https://www.antaranews.com/rss/terkini.xml');
             let replyTxt = '*Berita Terkini (Antara News):*\n\n';
             for (let i = 0; i < 5 && i < feed.items.length; i++) {
                 replyTxt += `📰 *${feed.items[i].title}*\n${feed.items[i].link}\n\n`;
             }
-            msg.reply(replyTxt);
+            await sock.sendMessage(from, { text: replyTxt });
         } catch (error) {
             console.error(error);
-            msg.reply('Maaf, gagal mengambil berita.');
+            await sock.sendMessage(from, { text: 'Maaf, gagal mengambil berita.' });
         }
         return;
     }
 
-    // 5. Downloader (Template)
-    if (text.startsWith('.tiktok ') || text.startsWith('.ig ') || text.startsWith('.yt ')) {
-        const link = text.split(' ')[1];
-        if (!link) return msg.reply('Harap sertakan link videonya.');
-        
-        msg.reply('⏳ Fitur downloader membutuhkan API khusus yang belum dikonfigurasi. Ini adalah template respons.');
-        // Contoh implementasi (Butuh API endpoint):
-        // try {
-        //     const res = await axios.get(`https://api.example.com/download?url=${link}`);
-        //     const mediaUrl = res.data.url;
-        //     const media = await MessageMedia.fromUrl(mediaUrl);
-        //     client.sendMessage(msg.from, media, { caption: 'Ini videonya!' });
-        // } catch (e) {
-        //     msg.reply('Gagal mendownload.');
-        // }
+    // Downloader
+    if (command.startsWith('.tiktok ') || command.startsWith('.ig ') || command.startsWith('.yt ')) {
+        await sock.sendMessage(from, { text: '⏳ Fitur downloader membutuhkan API khusus yang belum dikonfigurasi.' }, { quoted: msg });
         return;
     }
 
-    // 6. Sticker to Image (HD Upscale Template)
-    if (text === '.toimg') {
-        if (msg.hasQuotedMsg) {
-            const quotedMsg = await msg.getQuotedMessage();
-            if (quotedMsg.hasMedia && quotedMsg.type === 'sticker') {
-                const media = await quotedMsg.downloadMedia();
-                if (media) {
-                    msg.reply('⏳ Mengubah stiker ke gambar...');
-                    try {
-                        const imageBuffer = Buffer.from(media.data, 'base64');
-                        const convertedBuffer = await sharp(imageBuffer).png().toBuffer();
-                        const newMedia = new MessageMedia('image/png', convertedBuffer.toString('base64'), 'image.png');
-                        const chat = await msg.getChat();
-                        chat.sendMessage(newMedia, { sendMediaAsSticker: false, caption: 'Ini gambar dari stiker.' });
-                    } catch (error) {
-                        console.error('Error konversi gambar:', error);
-                        msg.reply('Maaf, gagal mengubah stiker menjadi gambar.');
-                    }
-                }
-            } else {
-                msg.reply('Harap reply sebuah stiker dengan command .toimg');
-            }
-        } else {
-            msg.reply('Harap reply sebuah stiker dengan command .toimg');
-        }
-        return;
-    }
+  });
 
-    // Command format: .schedule 08123456789 05.30 Besok meeting
-    if (msg.body.startsWith('.schedule ')) {
-        const textStr = msg.body.substring('.schedule '.length).trim();
-        
-        // Match format: <number> <HH.mm or HH:mm> <message>
-        const match = textStr.match(/^(\d+)\s+(\d{1,2})[.:](\d{2})\s+(.+)/);
-
-        if (!match) {
-            msg.reply('Format salah.\nContoh: *.schedule 08123456789 05.30 Pesan yang ingin dikirim*');
-            return;
-        }
-
-        let targetNumber = match[1];
-        const hour = parseInt(match[2], 10);
-        const minute = parseInt(match[3], 10);
-        const scheduleMessage = match[4];
-
-        if (hour < 0 || hour > 23 || minute < 0 || minute > 59) {
-            msg.reply('Jam tidak valid. Gunakan format 24 jam (00-23) dan menit (00-59).');
-            return;
-        }
-
-        // Format number to 628xxx...
-        if (targetNumber.startsWith('0')) {
-            targetNumber = '62' + targetNumber.substring(1);
-        } else if (targetNumber.startsWith('8')) {
-            targetNumber = '62' + targetNumber;
-        }
-
-        // Validate number and get contact
-        let contactName = targetNumber;
-        let finalChatId = targetNumber + '@c.us';
-
+  // Check pairing code if not connected
+  if (!fs.existsSync(authDir) || fs.readdirSync(authDir).length === 0) {
+      setTimeout(async () => {
         try {
-            const numberId = await client.getNumberId(targetNumber);
-            if (!numberId) {
-                msg.reply(`Nomor ${targetNumber} tidak terdaftar di WhatsApp.`);
-                return;
-            }
-            finalChatId = numberId._serialized;
-            const contact = await client.getContactById(finalChatId);
-            if (contact) {
-                contactName = contact.name || contact.pushname || contact.shortName || targetNumber;
-            }
-        } catch (e) {
-            console.log('Error fetching contact:', e);
+            const response = await inquirer.prompt([
+            {
+                type: 'input',
+                name: 'waNumber',
+                message: chalk.cyanBright('📱 Masukkan nomor WhatsApp Anda (tanpa tanda +):'),
+                validate: (input) => /^\d{8,}$/.test(input) ? true : '⚠️ Nomor tidak valid.',
+            },
+            ]);
+            const code = await sock.requestPairingCode(response.waNumber);
+            console.log(chalk.greenBright('\n✅ Pairing Code Ditemukan!'));
+            console.log(chalk.yellowBright('📌 Kode Anda:'), chalk.bold.magenta(code));
+            console.log(chalk.cyan('📱 Buka WhatsApp di HP: Perangkat Tertaut → Tautkan Perangkat → Masukkan Kode'));
+        } catch (err) {
+            console.error('Error mendapatkan pairing code:', err);
         }
+      }, 2000);
+  }
+}
 
-        // Get current time in Jakarta/WIB
-        const nowWib = moment().tz('Asia/Jakarta');
-        // Create the target time for today using moment
-        let targetWib = moment.tz([nowWib.year(), nowWib.month(), nowWib.date(), hour, minute, 0], 'Asia/Jakarta');
-
-        // If the target time is in the past for today, schedule it for tomorrow
-        if (targetWib.isBefore(nowWib)) {
-            targetWib.add(1, 'days');
-        }
-
-        // Convert the target timezone (Asia/Jakarta) back to local Date object for node-schedule
-        const targetDate = targetWib.toDate();
-        const formattedDate = targetWib.format('DD/MM/YYYY HH:mm');
-
-        msg.reply(`Sip! Pesan akan dikirim ke *${contactName}* pada *${formattedDate} WIB*.\nPesan: "${scheduleMessage}"`);
-
-        // Schedule the job
-        schedule.scheduleJob(targetDate, async () => {
-            try {
-                // Send to the target number
-                await client.sendMessage(finalChatId, `Halo *${contactName}*,\n\n*[Pesan Terjadwal]*\n${scheduleMessage}`);
-                console.log(`Sent scheduled message to ${contactName} (${finalChatId}): ${scheduleMessage}`);
-            } catch (err) {
-                console.error('Failed to send scheduled message:', err);
-            }
-        });
-    }
-});
-
-// Event listener untuk menangkap hasil klik Polling (sebagai pengganti tombol)
-client.on('vote_update', async (vote) => {
-    if (vote.selectedOptions && vote.selectedOptions.length > 0) {
-        const selected = vote.selectedOptions[0].name;
-        const voter = vote.voter; // ID user yang mengklik
-
-        if (selected === '.ping') {
-            await client.sendMessage(voter, 'pong! Bot is aktif dan merespon.');
-        } 
-        else if (selected === '.berita') {
-            try {
-                const feed = await rssParser.parseURL('https://www.antaranews.com/rss/terkini.xml');
-                let replyTxt = '*Berita Terkini (Antara News):*\n\n';
-                for (let i = 0; i < 5 && i < feed.items.length; i++) {
-                    replyTxt += `📰 *${feed.items[i].title}*\n${feed.items[i].link}\n\n`;
-                }
-                await client.sendMessage(voter, replyTxt);
-            } catch (error) {
-                await client.sendMessage(voter, 'Maaf, gagal mengambil berita.');
-            }
-        }
-        else if (selected === '.catatan') {
-            let todos = {};
-            if (fs.existsSync('./todos.json')) {
-                todos = JSON.parse(fs.readFileSync('./todos.json'));
-            }
-            // Karena voter berupa nomor@c.us, kita bisa pakai langsung sebagai key
-            if (!todos[voter] || todos[voter].length === 0) {
-                await client.sendMessage(voter, 'Kamu tidak punya catatan.');
-                return;
-            }
-            let replyTxt = '*Daftar Catatanmu:*\n';
-            todos[voter].forEach((item, index) => {
-                replyTxt += `${index + 1}. ${item}\n`;
-            });
-            replyTxt += '\n_(Ketik .hapuscatatan <nomor> untuk menghapus)_';
-            await client.sendMessage(voter, replyTxt);
-        }
-    }
-});
-
-// Start the client
-client.initialize();
+startBot();

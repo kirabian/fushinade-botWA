@@ -1,4 +1,4 @@
-import { makeWASocket, useMultiFileAuthState, DisconnectReason, Browsers } from 'atexovi-baileys';
+import { makeWASocket, useMultiFileAuthState, DisconnectReason, Browsers, fetchLatestBaileysVersion } from 'atexovi-baileys';
 import pino from 'pino';
 import fs from 'fs';
 import path from 'path';
@@ -71,9 +71,14 @@ async function startBot() {
   showBanner();
 
   const { state, saveCreds } = await useMultiFileAuthState(authDir);
+  const { version, isLatest } = await fetchLatestBaileysVersion();
+  console.log(chalk.cyan(`🔄 Menggunakan WhatsApp Web v${version.join('.')} (Latest: ${isLatest})`));
+
   const sock = makeWASocket({
     auth: state,
-    logger: pino({ level: 'silent' }), // Persis seperti wabase-button
+    version: version,
+    logger: pino({ level: 'silent' }),
+    browser: Browsers.ubuntu('Chrome'),
   });
   
   console.log(chalk.cyanBright('⏳ Membangun koneksi ke server WhatsApp... (Menunggu QR Code)'));

@@ -65,15 +65,15 @@ function showBanner() {
   console.log(chalk.cyanBright(text));
 }
 
+import qrcode from 'qrcode-terminal';
+
 async function startBot() {
   showBanner();
 
   const { state, saveCreds } = await useMultiFileAuthState(authDir);
   const sock = makeWASocket({
     auth: state,
-    logger: pino({ level: 'silent' }),
-    browser: ['Mac OS', 'Safari', '14.0.0'], // Bypass VPS IP Block
-    printQRInTerminal: true,
+    logger: pino({ level: 'silent' }), // Persis seperti wabase-button
   });
   
   console.log(chalk.cyanBright('⏳ Membangun koneksi ke server WhatsApp... (Menunggu QR Code)'));
@@ -82,7 +82,8 @@ async function startBot() {
     const { connection, lastDisconnect, qr } = update;
     
     if (qr) {
-        console.log(chalk.cyan('\n📱 Silakan scan QR Code di atas menggunakan WhatsApp Anda!'));
+        console.log(chalk.cyan('\n📱 Silakan scan QR Code di bawah ini menggunakan WhatsApp Anda:'));
+        qrcode.generate(qr, { small: true });
     }
 
     if (connection === 'open') {

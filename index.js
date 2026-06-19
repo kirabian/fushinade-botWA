@@ -68,6 +68,31 @@ function showBanner() {
 async function startBot() {
   showBanner();
 
+  const authExists = fs.existsSync(authDir);
+  const files = authExists ? fs.readdirSync(authDir).filter(f => f.endsWith('.json')) : [];
+  let waNumber = null;
+
+  // TANYA NOMOR DULUAN SEBELUM BUAT SOCKET agar tidak terganggu proses reconnecting!
+  if (files.length === 0) {
+    try {
+      const response = await inquirer.prompt([
+        {
+          type: 'input',
+          name: 'waNumber',
+          message: chalk.cyanBright('📱 Masukkan nomor WhatsApp Anda (tanpa tanda +):'),
+          validate: (input) => /^\d{8,}$/.test(input) ? true : '⚠️ Nomor tidak valid.',
+        },
+      ]);
+      waNumber = response.waNumber;
+    } catch (err) {
+      if (err.name === 'ExitPromptError') {
+        process.exit(0);
+      } else {
+        throw err;
+      }
+    }
+  }
+
   const { state, saveCreds } = await useMultiFileAuthState(authDir);
   const sock = makeWASocket({
     auth: state,
@@ -86,7 +111,10 @@ async function startBot() {
       const reason = lastDisconnect?.error?.output?.statusCode;
       const shouldReconnect = reason !== DisconnectReason.loggedOut;
       if (shouldReconnect) {
-        console.log(chalk.yellow('🔁 Connection lost. Reconnecting...'));
+        // Jangan print log "Connection lost" jika masih dalam proses pairing awal
+        if (files.length > 0) {
+            console.log(chalk.yellow('🔁 Connection lost. Reconnecting...'));
+        }
         setTimeout(() => startBot(), 2000);
       } else {
         console.log(chalk.red('❌ Sesi tidak valid / Ter-logout. Menghapus sesi lama...'));
@@ -265,27 +293,8 @@ async function startBot() {
 
   });
 
-  const files = fs.existsSync(authDir) ? fs.readdirSync(authDir).filter(f => f.endsWith('.json')) : [];
-  if (files.length === 0) {
-    let waNumber;
-    try {
-      const response = await inquirer.prompt([
-        {
-          type: 'input',
-          name: 'waNumber',
-          message: chalk.cyanBright('📱 Masukkan nomor WhatsApp Anda (tanpa tanda +):'),
-          validate: (input) => /^\d{8,}$/.test(input) ? true : '⚠️ Nomor tidak valid.',
-        },
-      ]);
-      waNumber = response.waNumber;
-    } catch (err) {
-      if (err.name === 'ExitPromptError') {
-        process.exit(0);
-      } else {
-        throw err;
-      }
-    }
-  
+  // Hanya jalankan requestPairingCode jika waNumber tidak null (berarti kita baru saja memintanya di awal)
+  if (waNumber) {
     try {
       setTimeout(async () => {
           const code = await sock.requestPairingCode(waNumber);

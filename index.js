@@ -1,4 +1,4 @@
-import { makeWASocket, useMultiFileAuthState, DisconnectReason, Browsers } from 'atexovi-baileys';
+import { makeWASocket, useMultiFileAuthState, DisconnectReason } from 'atexovi-baileys';
 import pino from 'pino';
 import fs from 'fs';
 import path from 'path';
@@ -60,8 +60,6 @@ async function generateResilientGroqContent(messages, retries = 2) {
 
 const authDir = path.join(__dirname, 'session');
 
-let isAskingNumber = false;
-
 function showBanner() {
   const text = figlet.textSync('Fushinade Bot', { font: 'Slant' });
   console.log(chalk.cyanBright(text));
@@ -70,78 +68,27 @@ function showBanner() {
 async function startBot() {
   showBanner();
 
-  const files = fs.existsSync(authDir) ? fs.readdirSync(authDir).filter(f => f.endsWith('.json')) : [];
-  let waNumber;
-
-  if (files.length === 0) {
-    try {
-      const response = await inquirer.prompt([
-        {
-          type: 'input',
-          name: 'waNumber',
-          message: chalk.cyanBright('📱 Masukkan nomor WhatsApp Anda (tanpa tanda +):'),
-          validate: (input) => /^\d{8,}$/.test(input) ? true : '⚠️ Nomor tidak valid.',
-        },
-      ]);
-      waNumber = response.waNumber;
-    } catch (err) {
-      console.log(chalk.red('\n⚠️ Prompt dibatalkan.'));
-      process.exit(1);
-    }
-  }
-
+  // 1. Buat socket DULUAN (persis seperti wabase-button)
   const { state, saveCreds } = await useMultiFileAuthState(authDir);
   const sock = makeWASocket({
     auth: state,
     logger: pino({ level: 'silent' }),
-    printQRInTerminal: false,
-    browser: Browsers.ubuntu('Chrome')
   });
 
-  if (waNumber) {
-    setTimeout(async () => {
-        try {
-            const code = await sock.requestPairingCode(waNumber);
-            console.log(chalk.greenBright('\n✅ Pairing Code Ditemukan!'));
-            console.log(chalk.yellowBright('📌 Kode Anda:'), chalk.bold.magenta(code));
-            console.log(chalk.cyan('📱 Buka WhatsApp di HP: Perangkat Tertaut → Tautkan Perangkat → Pilih opsi Tautkan Dengan Nomor Telepon'));
-        } catch (err) {
-            console.error(chalk.red('\n❌ Error mendapatkan pairing code:'), err.message);
-            if (err.message.includes('428') || err.message.includes('Connection Closed')) {
-                console.log(chalk.yellow('⚠️ WhatsApp membatasi permintaan kode (Rate Limit). Silakan tunggu 5-10 menit sebelum mencoba lagi.'));
-                process.exit(1);
-            }
-        }
-    }, 2000);
-  }
-
+  // 2. Pasang SEMUA event listener
   sock.ev.on('connection.update', async (update) => {
     const { connection, lastDisconnect } = update;
     if (connection === 'open') {
       console.log(chalk.greenBright('✅ Connected to WhatsApp!'));
+      console.log(chalk.cyan(`👤 User: ${sock.user?.id || 'Unknown'}`));
     } else if (connection === 'close') {
       const reason = lastDisconnect?.error?.output?.statusCode;
-      const errorMessage = lastDisconnect?.error?.message;
-      
-      if (reason === 428) {
-         console.log(chalk.red('\n❌ Koneksi ditolak oleh WhatsApp (Rate Limit/428). Silakan tunggu 5-10 menit sebelum mencoba lagi.'));
-         process.exit(1);
-      }
-
-      // 515 = restartRequired. Normal behavior for Baileys during pairing in some cases.
-      if (reason === 515 || reason === 500) {
-         console.log(chalk.yellow('ℹ️  WhatsApp meminta restart koneksi. Ini normal saat proses pairing.'));
-      }
-
       const shouldReconnect = reason !== DisconnectReason.loggedOut;
       if (shouldReconnect) {
-        console.log(chalk.yellow('🔁 Reconnecting... Anda masih bisa memasukkan kode pairing di HP Anda!'));
-        setTimeout(() => startBot(), 3000); // delay 3 seconds before reconnecting
+        console.log(chalk.yellow('🔁 Connection lost. Reconnecting...'));
+        startBot();
       } else {
-        console.log(chalk.red('❌ Sesi tidak valid / Ter-logout. Menghapus sesi lama...'));
-        try { fs.rmSync(authDir, { recursive: true, force: true }); } catch(e) {}
-        console.log(chalk.green('✅ Sesi lama dihapus. Silakan jalankan ulang bot.'));
-        process.exit(1);
+        console.log(chalk.red('❌ Invalid session. Please delete the session folder and try again.'));
       }
     }
   });
@@ -327,6 +274,40 @@ async function startBot() {
     }
 
   });
+
+  // 3. TERAKHIR: Cek apakah perlu pairing (persis seperti wabase-button)
+  const files = fs.readdirSync(authDir).filter(f => f.endsWith('.json'));
+  if (files.length === 0) {
+    let waNumber;
+    try {
+      const response = await inquirer.prompt([
+        {
+          type: 'input',
+          name: 'waNumber',
+          message: chalk.cyanBright('📱 Masukkan nomor WhatsApp Anda (tanpa tanda +):'),
+          validate: (input) => /^\d{8,}$/.test(input) ? true : '⚠️ Nomor tidak valid.',
+        },
+      ]);
+      waNumber = response.waNumber;
+    } catch (err) {
+      if (err.name === 'ExitPromptError') {
+        console.log(chalk.red('\n⚠️ Prompt dibatalkan. Keluar...'));
+        process.exit(0);
+      } else {
+        throw err;
+      }
+    }
+  
+    try {
+      const code = await sock.requestPairingCode(waNumber);
+      console.log(chalk.greenBright('\n✅ Pairing Code Ditemukan!'));
+      console.log(chalk.yellowBright('📌 Kode Anda:'), chalk.bold.magenta(code));
+      console.log(chalk.cyan('📱 Buka WhatsApp di HP: Perangkat Tertaut → Tautkan Perangkat → Pilih opsi Tautkan Dengan Nomor Telepon'));
+      console.log(chalk.greenBright('⏳ Menunggu koneksi otomatis...'));
+    } catch (error) {
+      console.error(chalk.red('❌ Error requesting pairing code:'), error);
+    }
+  }
 }
 
 startBot();

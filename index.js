@@ -1,4 +1,4 @@
-const { Client, LocalAuth, MessageMedia, List } = require('whatsapp-web.js');
+const { Client, LocalAuth, MessageMedia, List, Poll } = require('whatsapp-web.js');
 const qrcode = require('qrcode-terminal');
 const schedule = require('node-schedule');
 const moment = require('moment-timezone');
@@ -108,8 +108,9 @@ client.on('message_create', async msg => {
             `   ➔ .ig <link>\n` +
             `   ➔ .yt <link>\n`;
 
-        // Mengirim langsung dalam bentuk teks karena fitur Button resmi diblokir oleh WhatsApp untuk bot non-resmi
-        await msg.reply(menuText + '\n\n_(Ketik salah satu command di atas untuk menggunakan bot)_');
+        // Mengirim Polling sebagai alternatif "Interactive Button"
+        const poll = new Poll(menuText + '\n\n*Pilih menu cepat di bawah ini:*', ['.ping', '.berita', '.catatan'], { allowMultipleAnswers: false });
+        await client.sendMessage(msg.from, poll);
         return;
     }
 
@@ -375,6 +376,47 @@ client.on('message_create', async msg => {
                 console.error('Failed to send scheduled message:', err);
             }
         });
+    }
+});
+
+// Event listener untuk menangkap hasil klik Polling (sebagai pengganti tombol)
+client.on('vote_update', async (vote) => {
+    if (vote.selectedOptions && vote.selectedOptions.length > 0) {
+        const selected = vote.selectedOptions[0].name;
+        const voter = vote.voter; // ID user yang mengklik
+
+        if (selected === '.ping') {
+            await client.sendMessage(voter, 'pong! Bot is aktif dan merespon.');
+        } 
+        else if (selected === '.berita') {
+            try {
+                const feed = await rssParser.parseURL('https://www.antaranews.com/rss/terkini.xml');
+                let replyTxt = '*Berita Terkini (Antara News):*\n\n';
+                for (let i = 0; i < 5 && i < feed.items.length; i++) {
+                    replyTxt += `📰 *${feed.items[i].title}*\n${feed.items[i].link}\n\n`;
+                }
+                await client.sendMessage(voter, replyTxt);
+            } catch (error) {
+                await client.sendMessage(voter, 'Maaf, gagal mengambil berita.');
+            }
+        }
+        else if (selected === '.catatan') {
+            let todos = {};
+            if (fs.existsSync('./todos.json')) {
+                todos = JSON.parse(fs.readFileSync('./todos.json'));
+            }
+            // Karena voter berupa nomor@c.us, kita bisa pakai langsung sebagai key
+            if (!todos[voter] || todos[voter].length === 0) {
+                await client.sendMessage(voter, 'Kamu tidak punya catatan.');
+                return;
+            }
+            let replyTxt = '*Daftar Catatanmu:*\n';
+            todos[voter].forEach((item, index) => {
+                replyTxt += `${index + 1}. ${item}\n`;
+            });
+            replyTxt += '\n_(Ketik .hapuscatatan <nomor> untuk menghapus)_';
+            await client.sendMessage(voter, replyTxt);
+        }
     }
 });
 

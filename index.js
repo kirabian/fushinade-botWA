@@ -99,20 +99,22 @@ async function startBot() {
     printQRInTerminal: false
   });
 
-  sock.ev.on('connection.update', async (update) => {
-    const { connection, lastDisconnect, qr } = update;
-    
-    if (qr && waNumber && !sock.authState.creds.registered) {
-      try {
-        const code = await sock.requestPairingCode(waNumber);
-        console.log(chalk.greenBright('\n✅ Pairing Code Ditemukan!'));
-        console.log(chalk.yellowBright('📌 Kode Anda:'), chalk.bold.magenta(code));
-        console.log(chalk.cyan('📱 Buka WhatsApp di HP: Perangkat Tertaut → Tautkan Perangkat → Pilih opsi Tautkan Dengan Nomor Telepon'));
-      } catch (err) {
-        console.error('Error mendapatkan pairing code:', err.message);
-      }
-    }
+  if (waNumber) {
+    // Request pairing code immediately, Baileys will internally wait for the right moment.
+    setTimeout(async () => {
+        try {
+            const code = await sock.requestPairingCode(waNumber);
+            console.log(chalk.greenBright('\n✅ Pairing Code Ditemukan!'));
+            console.log(chalk.yellowBright('📌 Kode Anda:'), chalk.bold.magenta(code));
+            console.log(chalk.cyan('📱 Buka WhatsApp di HP: Perangkat Tertaut → Tautkan Perangkat → Pilih opsi Tautkan Dengan Nomor Telepon'));
+        } catch (err) {
+            console.error('Error mendapatkan pairing code:', err.message);
+        }
+    }, 0);
+  }
 
+  sock.ev.on('connection.update', async (update) => {
+    const { connection, lastDisconnect } = update;
     if (connection === 'open') {
       console.log(chalk.greenBright('✅ Connected to WhatsApp!'));
     } else if (connection === 'close') {

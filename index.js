@@ -72,9 +72,11 @@ async function startBot() {
   const sock = makeWASocket({
     auth: state,
     logger: pino({ level: 'silent' }),
-    browser: Browsers.ubuntu('Chrome'), // Tetap pakai ini agar VPS tidak diblokir
-    printQRInTerminal: true, // AKTIFKAN QR
+    browser: ['Mac OS', 'Safari', '14.0.0'], // Bypass VPS IP Block
+    printQRInTerminal: true,
   });
+  
+  console.log(chalk.cyanBright('⏳ Membangun koneksi ke server WhatsApp... (Menunggu QR Code)'));
 
   sock.ev.on('connection.update', async (update) => {
     const { connection, lastDisconnect, qr } = update;

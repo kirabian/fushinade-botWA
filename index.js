@@ -1,4 +1,4 @@
-import { makeWASocket, useMultiFileAuthState, DisconnectReason } from 'atexovi-baileys';
+import { makeWASocket, useMultiFileAuthState, DisconnectReason, Browsers } from 'atexovi-baileys';
 import pino from 'pino';
 import fs from 'fs';
 import path from 'path';

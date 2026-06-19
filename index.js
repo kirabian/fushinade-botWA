@@ -120,7 +120,17 @@ async function startBot() {
       console.log(chalk.greenBright('✅ Connected to WhatsApp!'));
     } else if (connection === 'close') {
       const reason = lastDisconnect?.error?.output?.statusCode;
+      const errorMessage = lastDisconnect?.error?.message;
       
+      if (!sock.authState.creds.registered) {
+         console.log(chalk.red('\n❌ Koneksi terputus saat menunggu pairing.'));
+         console.log(chalk.red('Alasan Error:'), errorMessage || reason || 'Tidak diketahui');
+         console.log(chalk.yellow('Sesi pairing sebelumnya sudah tidak berlaku. Menghapus sesi...'));
+         try { fs.rmSync(authDir, { recursive: true, force: true }); } catch(e) {}
+         console.log(chalk.green('✅ Sesi dihapus. Silakan jalankan ulang bot (node index.js).'));
+         process.exit(1);
+      }
+
       if (reason === 428) {
          console.log(chalk.red('\n❌ Koneksi ditolak oleh WhatsApp (Rate Limit/428). Silakan tunggu 5-10 menit sebelum mencoba lagi.'));
          process.exit(1);
@@ -129,7 +139,7 @@ async function startBot() {
       const shouldReconnect = reason !== DisconnectReason.loggedOut;
       if (shouldReconnect) {
         console.log(chalk.yellow('🔁 Connection lost. Reconnecting...'));
-        startBot();
+        setTimeout(() => startBot(), 3000); // delay 3 seconds before reconnecting
       } else {
         console.log(chalk.red('❌ Sesi tidak valid / Ter-logout. Menghapus sesi lama...'));
         try { fs.rmSync(authDir, { recursive: true, force: true }); } catch(e) {}

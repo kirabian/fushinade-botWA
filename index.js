@@ -71,8 +71,8 @@ async function startBot() {
   const { state, saveCreds } = await useMultiFileAuthState(authDir);
   const sock = makeWASocket({
     auth: state,
-    logger: pino({ level: 'silent' }),
-    printQRInTerminal: true, // <-- Aktifkan QR Code di terminal
+    logger: pino({ level: 'info' }),
+    printQRInTerminal: true,
   });
 
   sock.ev.on('connection.update', async (update) => {

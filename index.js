@@ -99,8 +99,10 @@ async function startBot() {
     printQRInTerminal: false
   });
 
-  if (waNumber) {
-    setTimeout(async () => {
+  sock.ev.on('connection.update', async (update) => {
+    const { connection, lastDisconnect, qr } = update;
+    
+    if (qr && waNumber && !sock.authState.creds.registered) {
       try {
         const code = await sock.requestPairingCode(waNumber);
         console.log(chalk.greenBright('\n✅ Pairing Code Ditemukan!'));
@@ -109,11 +111,8 @@ async function startBot() {
       } catch (err) {
         console.error('Error mendapatkan pairing code:', err.message);
       }
-    }, 2000);
-  }
+    }
 
-  sock.ev.on('connection.update', async (update) => {
-    const { connection, lastDisconnect } = update;
     if (connection === 'open') {
       console.log(chalk.greenBright('✅ Connected to WhatsApp!'));
     } else if (connection === 'close') {

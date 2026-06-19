@@ -1,4 +1,4 @@
-const { Client, LocalAuth, MessageMedia, Buttons, List } = require('whatsapp-web.js');
+const { Client, LocalAuth, MessageMedia, List } = require('whatsapp-web.js');
 const qrcode = require('qrcode-terminal');
 const schedule = require('node-schedule');
 const moment = require('moment-timezone');
@@ -108,20 +108,8 @@ client.on('message_create', async msg => {
             `   ➔ .ig <link>\n` +
             `   ➔ .yt <link>\n`;
 
-        // Perlu diingat: Fitur Buttons dari whatsapp-web.js kadang tidak muncul di versi WA resmi terbaru karena batasan dari pihak WhatsApp. 
-        // Namun kita coba kirim Buttons, dan jika gagal akan fallback ke text biasa.
-        let button = new Buttons(menuText, [
-            { body: '.ping' },
-            { body: '.berita' },
-            { body: '.catatan' }
-        ], 'Silakan pilih menu cepat di bawah ini:', 'Fushinade Bot');
-        
-        try {
-            await client.sendMessage(msg.from, button);
-        } catch (e) {
-            console.log('Gagal mengirim Button, fallback ke teks biasa');
-            await msg.reply(menuText + '\n\n_(Ketik salah satu command di atas untuk menggunakan bot)_');
-        }
+        // Mengirim langsung dalam bentuk teks karena fitur Button resmi diblokir oleh WhatsApp untuk bot non-resmi
+        await msg.reply(menuText + '\n\n_(Ketik salah satu command di atas untuk menggunakan bot)_');
         return;
     }
 

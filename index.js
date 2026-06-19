@@ -63,7 +63,6 @@ const authDir = path.join(__dirname, 'session');
 let isAskingNumber = false;
 
 function showBanner() {
-  console.clear();
   const text = figlet.textSync('Fushinade Bot', { font: 'Slant' });
   console.log(chalk.cyanBright(text));
 }

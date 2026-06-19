@@ -274,25 +274,33 @@ async function startBot() {
   });
 
   // Check pairing code if not connected
-  if (!fs.existsSync(authDir) || fs.readdirSync(authDir).length === 0) {
-      setTimeout(async () => {
-        try {
-            const response = await inquirer.prompt([
-            {
-                type: 'input',
-                name: 'waNumber',
-                message: chalk.cyanBright('📱 Masukkan nomor WhatsApp Anda (tanpa tanda +):'),
-                validate: (input) => /^\d{8,}$/.test(input) ? true : '⚠️ Nomor tidak valid.',
-            },
-            ]);
-            const code = await sock.requestPairingCode(response.waNumber);
-            console.log(chalk.greenBright('\n✅ Pairing Code Ditemukan!'));
-            console.log(chalk.yellowBright('📌 Kode Anda:'), chalk.bold.magenta(code));
-            console.log(chalk.cyan('📱 Buka WhatsApp di HP: Perangkat Tertaut → Tautkan Perangkat → Masukkan Kode'));
-        } catch (err) {
-            console.error('Error mendapatkan pairing code:', err);
-        }
-      }, 2000);
+  const files = fs.existsSync(authDir) ? fs.readdirSync(authDir).filter(f => f.endsWith('.json')) : [];
+  if (files.length === 0) {
+    let waNumber;
+    try {
+      const response = await inquirer.prompt([
+        {
+          type: 'input',
+          name: 'waNumber',
+          message: chalk.cyanBright('📱 Masukkan nomor WhatsApp Anda (tanpa tanda +):'),
+          validate: (input) => /^\d{8,}$/.test(input) ? true : '⚠️ Nomor tidak valid.',
+        },
+      ]);
+      waNumber = response.waNumber;
+    } catch (err) {
+      console.log(chalk.red('\n⚠️ Prompt dibatalkan atau error.'));
+    }
+
+    if (waNumber) {
+      try {
+        const code = await sock.requestPairingCode(waNumber);
+        console.log(chalk.greenBright('\n✅ Pairing Code Ditemukan!'));
+        console.log(chalk.yellowBright('📌 Kode Anda:'), chalk.bold.magenta(code));
+        console.log(chalk.cyan('📱 Buka WhatsApp di HP: Perangkat Tertaut → Tautkan Perangkat → Pilih opsi Tautkan Dengan Nomor Telepon'));
+      } catch (err) {
+        console.error('Error mendapatkan pairing code:', err);
+      }
+    }
   }
 }
 

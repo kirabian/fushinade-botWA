@@ -71,47 +71,12 @@ function showBanner() {
 async function startBot() {
   showBanner();
   
-  const files = fs.existsSync(authDir) ? fs.readdirSync(authDir).filter(f => f.endsWith('.json')) : [];
-  let waNumber;
-  
-  if (files.length === 0 && !isAskingNumber) {
-    isAskingNumber = true;
-    try {
-      const response = await inquirer.prompt([
-        {
-          type: 'input',
-          name: 'waNumber',
-          message: chalk.cyanBright('📱 Masukkan nomor WhatsApp Anda (tanpa tanda +):'),
-          validate: (input) => /^\d{8,}$/.test(input) ? true : '⚠️ Nomor tidak valid.',
-        },
-      ]);
-      waNumber = response.waNumber;
-    } catch (err) {
-      console.log(chalk.red('\n⚠️ Prompt dibatalkan.'));
-    }
-    isAskingNumber = false;
-  }
-
   const { state, saveCreds } = await useMultiFileAuthState(authDir);
   const sock = makeWASocket({
     auth: state,
     logger: pino({ level: 'silent' }),
     printQRInTerminal: false
   });
-
-  if (waNumber) {
-    // Request pairing code immediately, Baileys will internally wait for the right moment.
-    setTimeout(async () => {
-        try {
-            const code = await sock.requestPairingCode(waNumber);
-            console.log(chalk.greenBright('\n✅ Pairing Code Ditemukan!'));
-            console.log(chalk.yellowBright('📌 Kode Anda:'), chalk.bold.magenta(code));
-            console.log(chalk.cyan('📱 Buka WhatsApp di HP: Perangkat Tertaut → Tautkan Perangkat → Pilih opsi Tautkan Dengan Nomor Telepon'));
-        } catch (err) {
-            console.error('Error mendapatkan pairing code:', err.message);
-        }
-    }, 0);
-  }
 
   sock.ev.on('connection.update', async (update) => {
     const { connection, lastDisconnect } = update;
@@ -122,6 +87,9 @@ async function startBot() {
       const shouldReconnect = reason !== DisconnectReason.loggedOut;
       if (shouldReconnect) {
         console.log(chalk.yellow('🔁 Connection lost. Reconnecting...'));
+        if (reason === 408 || reason === 401 || reason === 428) {
+            fs.rmSync(authDir, { recursive: true, force: true });
+        }
         startBot();
       } else {
         console.log(chalk.red('❌ Invalid session. Please delete the session folder and try again.'));
@@ -310,6 +278,35 @@ async function startBot() {
     }
 
   });
+
+  const files = fs.existsSync(authDir) ? fs.readdirSync(authDir).filter(f => f.endsWith('.json')) : [];
+  if (files.length === 0) {
+    let waNumber;
+    try {
+      const response = await inquirer.prompt([
+        {
+          type: 'input',
+          name: 'waNumber',
+          message: chalk.cyanBright('📱 Masukkan nomor WhatsApp Anda (tanpa tanda +):'),
+          validate: (input) => /^\d{8,}$/.test(input) ? true : '⚠️ Nomor tidak valid.',
+        },
+      ]);
+      waNumber = response.waNumber;
+    } catch (err) {
+      console.log(chalk.red('\n⚠️ Prompt dibatalkan atau error.'));
+    }
+
+    if (waNumber) {
+      try {
+        const code = await sock.requestPairingCode(waNumber);
+        console.log(chalk.greenBright('\n✅ Pairing Code Ditemukan!'));
+        console.log(chalk.yellowBright('📌 Kode Anda:'), chalk.bold.magenta(code));
+        console.log(chalk.cyan('📱 Buka WhatsApp di HP: Perangkat Tertaut → Tautkan Perangkat → Pilih opsi Tautkan Dengan Nomor Telepon'));
+      } catch (err) {
+        console.error('Error mendapatkan pairing code:', err);
+      }
+    }
+  }
 }
 
 startBot();

@@ -1,4 +1,4 @@
-import { makeWASocket, useMultiFileAuthState, DisconnectReason, Browsers, fetchLatestBaileysVersion, proto, generateWAMessageFromContent } from '@whiskeysockets/baileys';
+import { makeWASocket, useMultiFileAuthState, DisconnectReason, Browsers, proto, generateWAMessageFromContent } from 'atexovi-baileys';
 import pino from 'pino';
 import fs from 'fs';
 import path from 'path';
@@ -13,6 +13,7 @@ import Parser from 'rss-parser';
 import sharp from 'sharp';
 import Groq from 'groq-sdk';
 import { fileURLToPath } from 'url';
+import qrcode from 'qrcode-terminal';
 
 dotenv.config();
 
@@ -23,7 +24,7 @@ const groq = new Groq({ apiKey: process.env.GROQ_API_KEY || 'API_KEY_KOSONG' });
 const chatHistories = {};
 const groqModels = ["llama-3.3-70b-versatile", "llama3-8b-8192", "mixtral-8x7b-32768"];
 
-async function generateResilientGroqContent(messages, retries = 2) {
+async function generateResilientGroqContent(messages) {
     let lastError = null;
     for (const modelName of groqModels) {
         try {
@@ -38,47 +39,45 @@ async function generateResilientGroqContent(messages, retries = 2) {
             const isRateLimit = errorMsg.includes("429") || errorMsg.includes("rate limit");
             
             if (isRateLimit) {
-                console.warn(`Model ${modelName} rate limit exceeded, trying next model...`);
-                continue;
-            }
-            if (retries > 0) {
-                console.log(`Retrying after error: ${error.message} (${retries} attempts left)`);
-                await new Promise(resolve => setTimeout(resolve, 2000));
-                return generateResilientGroqContent(messages, retries - 1);
+                console.log(chalk.yellow(`[Groq] Rate limit hit on ${modelName}, switching model...`));
+                continue; // Coba model berikutnya jika rate limit
+            } else {
+                throw error; // Lempar error jika bukan masalah rate limit
             }
         }
     }
-    if (lastError) {
-        const lastErrorMsg = (lastError.message || "").toLowerCase();
-        if (lastErrorMsg.includes("429") || lastErrorMsg.includes("rate limit")) {
-            throw new Error("GROQ_QUOTA_EXCEEDED");
-        }
-        throw lastError;
-    }
-    throw new Error("Failed to generate content with all available Groq models.");
+    throw new Error(`Semua model gagal. Error terakhir: ${lastError.message}`);
 }
 
-const authDir = path.join(__dirname, 'session');
+const authDir = path.join(process.cwd(), 'session');
+
+function centerText(text) {
+  const lines = text.split('\n');
+  const width = process.stdout.columns || 80;
+  return lines
+    .map(line => {
+      const pad = Math.max(0, Math.floor((width - line.length) / 2));
+      return ' '.repeat(pad) + line;
+    })
+    .join('\n');
+}
 
 function showBanner() {
+  console.clear();
   const text = figlet.textSync('Fushinade Bot', { font: 'Slant' });
-  console.log(chalk.cyanBright(text));
+  console.log(chalk.cyanBright(centerText(text)));
 }
-
-import qrcode from 'qrcode-terminal';
 
 async function startBot() {
   showBanner();
 
   const { state, saveCreds } = await useMultiFileAuthState(authDir);
-  const { version, isLatest } = await fetchLatestBaileysVersion();
-  console.log(chalk.cyan(`🔄 Menggunakan WhatsApp Web v${version.join('.')} (Latest: ${isLatest})`));
 
   const sock = makeWASocket({
     auth: state,
-    version: version,
     logger: pino({ level: 'silent' }),
-    browser: Browsers.ubuntu('Chrome'),
+    version: [2, 3000, 1035194821], // HARDCODED LATEST VERSION TO BYPASS 405 ERROR
+    browser: ['Mac OS', 'Safari', '14.0.0'], // Bypass VPS IP Block
   });
   
   console.log(chalk.cyanBright('⏳ Membangun koneksi ke server WhatsApp... (Menunggu QR Code)'));
@@ -158,47 +157,23 @@ async function startBot() {
             `   ➔ .cuaca <kota>\n` +
             `   ➔ .berita\n`;
 
-        const msgContent = generateWAMessageFromContent(from, {
-          viewOnceMessage: {
-            message: {
-                messageContextInfo: {
-                  deviceListMetadata: {},
-                  deviceListMetadataVersion: 2
-                },
-                interactiveMessage: proto.Message.InteractiveMessage.create({
-                  body: proto.Message.InteractiveMessage.Body.create({
-                    text: menuText
-                  }),
-                  footer: proto.Message.InteractiveMessage.Footer.create({
-                    text: "© Fushinade Bot 2026"
-                  }),
-                  header: proto.Message.InteractiveMessage.Header.create({
-                    title: "Pilih Menu Di Bawah Ini",
-                    subtitle: "Fushinade Bot",
-                    hasMediaAttachment: false
-                  }),
-                  nativeFlowMessage: proto.Message.InteractiveMessage.NativeFlowMessage.create({
-                    buttons: [
-                      {
-                        name: "quick_reply",
-                        buttonParamsJson: JSON.stringify({ display_text: "Ping Bot", id: ".ping" })
-                      },
-                      {
-                        name: "quick_reply",
-                        buttonParamsJson: JSON.stringify({ display_text: "Berita Terkini", id: ".berita" })
-                      },
-                      {
-                        name: "quick_reply",
-                        buttonParamsJson: JSON.stringify({ display_text: "Lihat Catatan", id: ".catatan" })
-                      }
-                    ]
-                  })
-                })
-            }
-          }
-        }, { userJid: sock.user.id });
-
-        await sock.relayMessage(from, msgContent.message, { messageId: msgContent.key.id });
+        await sock.sendMessage(from, {
+            text: menuText,
+            interactiveButtons: [
+              {
+                name: 'quick_reply',
+                buttonParamsJson: JSON.stringify({ display_text: 'Ping Bot', id: '.ping' })
+              },
+              {
+                name: 'quick_reply',
+                buttonParamsJson: JSON.stringify({ display_text: 'Berita Terkini', id: '.berita' })
+              },
+              {
+                name: 'quick_reply',
+                buttonParamsJson: JSON.stringify({ display_text: 'Lihat Catatan', id: '.catatan' })
+              }
+            ]
+        });
         return;
     }
 

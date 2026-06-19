@@ -68,42 +68,21 @@ function showBanner() {
 async function startBot() {
   showBanner();
 
-  const authExists = fs.existsSync(authDir);
-  const files = authExists ? fs.readdirSync(authDir).filter(f => f.endsWith('.json')) : [];
-  let waNumber = null;
-
-  // TANYA NOMOR DULUAN SEBELUM BUAT SOCKET agar tidak terganggu proses reconnecting!
-  if (files.length === 0) {
-    try {
-      const response = await inquirer.prompt([
-        {
-          type: 'input',
-          name: 'waNumber',
-          message: chalk.cyanBright('📱 Masukkan nomor WhatsApp Anda (tanpa tanda +):'),
-          validate: (input) => /^\d{8,}$/.test(input) ? true : '⚠️ Nomor tidak valid.',
-        },
-      ]);
-      waNumber = response.waNumber;
-    } catch (err) {
-      if (err.name === 'ExitPromptError') {
-        process.exit(0);
-      } else {
-        throw err;
-      }
-    }
-  }
-
   const { state, saveCreds } = await useMultiFileAuthState(authDir);
   const sock = makeWASocket({
     auth: state,
     logger: pino({ level: 'silent' }),
-    browser: Browsers.ubuntu('Chrome'),
-    printQRInTerminal: false,
+    browser: Browsers.ubuntu('Chrome'), // Tetap pakai ini agar VPS tidak diblokir
+    printQRInTerminal: true, // AKTIFKAN QR
   });
 
   sock.ev.on('connection.update', async (update) => {
-    const { connection, lastDisconnect } = update;
+    const { connection, lastDisconnect, qr } = update;
     
+    if (qr) {
+        console.log(chalk.cyan('\n📱 Silakan scan QR Code di atas menggunakan WhatsApp Anda!'));
+    }
+
     if (connection === 'open') {
       console.log(chalk.greenBright('\n✅ Connected to WhatsApp!'));
       console.log(chalk.cyan(`👤 User: ${sock.user?.id || 'Unknown'}`));
@@ -111,10 +90,7 @@ async function startBot() {
       const reason = lastDisconnect?.error?.output?.statusCode;
       const shouldReconnect = reason !== DisconnectReason.loggedOut;
       if (shouldReconnect) {
-        // Jangan print log "Connection lost" jika masih dalam proses pairing awal
-        if (files.length > 0) {
-            console.log(chalk.yellow('🔁 Connection lost. Reconnecting...'));
-        }
+        console.log(chalk.yellow('🔁 Connection lost. Reconnecting...'));
         setTimeout(() => startBot(), 2000);
       } else {
         console.log(chalk.red('❌ Sesi tidak valid / Ter-logout. Menghapus sesi lama...'));
@@ -292,20 +268,6 @@ async function startBot() {
     }
 
   });
-
-  // Hanya jalankan requestPairingCode jika waNumber tidak null (berarti kita baru saja memintanya di awal)
-  if (waNumber) {
-    try {
-      setTimeout(async () => {
-          const code = await sock.requestPairingCode(waNumber);
-          console.log(chalk.greenBright('\n✅ Pairing Code Ditemukan!'));
-          console.log(chalk.yellowBright('📌 Kode Anda:'), chalk.bold.magenta(code));
-          console.log(chalk.cyan('📱 Buka WhatsApp di HP: Perangkat Tertaut → Tautkan Perangkat → Pilih opsi Tautkan Dengan Nomor Telepon'));
-      }, 3000);
-    } catch (error) {
-      console.error(chalk.red('❌ Error requesting pairing code:'), error);
-    }
-  }
 }
 
 startBot();

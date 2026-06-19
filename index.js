@@ -1,4 +1,4 @@
-import { makeWASocket, useMultiFileAuthState, DisconnectReason, Browsers, fetchLatestBaileysVersion, proto, generateWAMessageFromContent } from '@whiskeysockets/baileys';
+import { makeWASocket, useMultiFileAuthState, DisconnectReason, Browsers, fetchLatestBaileysVersion } from 'atexovi-baileys';
 import pino from 'pino';
 import fs from 'fs';
 import path from 'path';
@@ -158,47 +158,23 @@ async function startBot() {
             `   ➔ .cuaca <kota>\n` +
             `   ➔ .berita\n`;
 
-        const msgContent = generateWAMessageFromContent(from, {
-          viewOnceMessage: {
-            message: {
-                messageContextInfo: {
-                  deviceListMetadata: {},
-                  deviceListMetadataVersion: 2
-                },
-                interactiveMessage: proto.Message.InteractiveMessage.create({
-                  body: proto.Message.InteractiveMessage.Body.create({
-                    text: menuText
-                  }),
-                  footer: proto.Message.InteractiveMessage.Footer.create({
-                    text: "© Fushinade Bot 2026"
-                  }),
-                  header: proto.Message.InteractiveMessage.Header.create({
-                    title: "",
-                    subtitle: "",
-                    hasMediaAttachment: false
-                  }),
-                  nativeFlowMessage: proto.Message.InteractiveMessage.NativeFlowMessage.create({
-                    buttons: [
-                      {
-                        name: "quick_reply",
-                        buttonParamsJson: JSON.stringify({ display_text: "Ping Bot", id: ".ping" })
-                      },
-                      {
-                        name: "quick_reply",
-                        buttonParamsJson: JSON.stringify({ display_text: "Berita Terkini", id: ".berita" })
-                      },
-                      {
-                        name: "quick_reply",
-                        buttonParamsJson: JSON.stringify({ display_text: "Lihat Catatan", id: ".catatan" })
-                      }
-                    ]
-                  })
-                })
-            }
-          }
-        }, { userJid: sock.user.id });
-
-        await sock.relayMessage(from, msgContent.message, { messageId: msgContent.key.id });
+        await sock.sendMessage(from, {
+            text: menuText,
+            interactiveButtons: [
+              {
+                name: 'quick_reply',
+                buttonParamsJson: JSON.stringify({ display_text: 'Ping Bot', id: '.ping' })
+              },
+              {
+                name: 'quick_reply',
+                buttonParamsJson: JSON.stringify({ display_text: 'Berita Terkini', id: '.berita' })
+              },
+              {
+                name: 'quick_reply',
+                buttonParamsJson: JSON.stringify({ display_text: 'Lihat Catatan', id: '.catatan' })
+              }
+            ]
+        });
         return;
     }
 

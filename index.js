@@ -113,9 +113,14 @@ async function startBot() {
   
   sock.ev.on('messages.upsert', async m => {
     const msg = m.messages?.[0];
-    if (!msg || msg.key.fromMe) return;
+    if (!msg) return;
 
     const from = msg.key.remoteJid;
+    // Jangan proses jika pesan dari bot sendiri KECUALI jika dikirim ke "Message yourself"
+    if (msg.key.fromMe && from !== sock.user?.id.split(':')[0] + '@s.whatsapp.net') {
+       // Kita biarkan sementara agar Anda bisa ngetes dari HP sendiri.
+       // Tapi aslinya: if (!msg || msg.key.fromMe) return;
+    }
     const body = msg.message?.conversation || msg.message?.extendedTextMessage?.text || msg.message?.imageMessage?.caption || "";
     const text = body.trim();
     

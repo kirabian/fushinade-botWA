@@ -136,44 +136,78 @@ async function startBot() {
 
     const command = rowId ? rowId : text;
 
-    if (command === '.ping') {
+    if (command.toLowerCase().includes('ping')) {
         await sock.sendMessage(from, { text: 'pong! Bot is aktif dan merespon.' }, { quoted: msg });
         return;
     }
 
     if (command === '.menu') {
-        const menuText = `*🤖 FUSHINADE BOT MENU 🤖*\n\n` +
-            `*1. 🤖 AI & Chatbot*\n` +
-            `   ➔ .ai <pertanyaan>\n` +
-            `   ➔ .ask <pertanyaan>\n\n` +
-            `*2. 🛠️ Utilities*\n` +
-            `   ➔ .ping\n` +
-            `   ➔ .schedule <no> <jam> <pesan>\n\n` +
-            `*3. 📝 Catatan (To-Do)*\n` +
-            `   ➔ .catat <isi catatan>\n` +
-            `   ➔ .catatan (Lihat list)\n` +
-            `   ➔ .hapuscatatan <nomor>\n\n` +
-            `*4. 🌐 Info & Berita*\n` +
-            `   ➔ .cuaca <kota>\n` +
-            `   ➔ .berita\n`;
+        const interactiveMessage = {
+            viewOnceMessage: {
+                message: {
+                    messageContextInfo: {
+                        deviceListMetadata: {},
+                        deviceListMetadataVersion: 2
+                    },
+                    interactiveMessage: proto.Message.InteractiveMessage.create({
+                        body: proto.Message.InteractiveMessage.Body.create({
+                            text: `*🤖 FUSHINADE BOT MENU 🤖*\n\nSilakan pilih menu di bawah ini untuk melihat fitur yang tersedia.`
+                        }),
+                        footer: proto.Message.InteractiveMessage.Footer.create({
+                            text: "© Fushinade Bot 2025"
+                        }),
+                        header: proto.Message.InteractiveMessage.Header.create({
+                            title: "Hello!",
+                            subtitle: "Pilih opsi dari menu di bawah:",
+                            hasMediaAttachment: false
+                        }),
+                        nativeFlowMessage: proto.Message.InteractiveMessage.NativeFlowMessage.create({
+                            buttons: [
+                                {
+                                    name: "single_select",
+                                    buttonParamsJson: JSON.stringify({
+                                        title: "Menu",
+                                        sections: [
+                                            {
+                                                title: "🤖 AI & Chatbot",
+                                                rows: [
+                                                    { title: "Chat AI (.ai)", description: "Contoh: .ai halo", id: ".ai Halo" },
+                                                    { title: "Tanya AI (.ask)", description: "Contoh: .ask siapa kamu", id: ".ask Halo" }
+                                                ]
+                                            },
+                                            {
+                                                title: "🛠️ Utilities",
+                                                rows: [
+                                                    { title: "Ping Bot", description: "Cek respon bot", id: ".ping" },
+                                                    { title: "Schedule", description: "Contoh: .schedule 1 08:00 pesan", id: ".schedule" }
+                                                ]
+                                            },
+                                            {
+                                                title: "📝 Catatan (To-Do)",
+                                                rows: [
+                                                    { title: "Lihat Catatan", description: "Menampilkan list catatan", id: ".catatan" },
+                                                    { title: "Tambah Catatan", description: "Contoh: .catat belanja", id: ".catat" }
+                                                ]
+                                            },
+                                            {
+                                                title: "🌐 Info & Berita",
+                                                rows: [
+                                                    { title: "Berita Terkini", description: "Menampilkan berita terbaru", id: ".berita" },
+                                                    { title: "Cek Cuaca", description: "Contoh: .cuaca Jakarta", id: ".cuaca Jakarta" }
+                                                ]
+                                            }
+                                        ]
+                                    })
+                                }
+                            ]
+                        })
+                    })
+                }
+            }
+        };
 
-        await sock.sendMessage(from, {
-            text: menuText,
-            interactiveButtons: [
-              {
-                name: 'quick_reply',
-                buttonParamsJson: JSON.stringify({ display_text: 'Ping Bot', id: '.ping' })
-              },
-              {
-                name: 'quick_reply',
-                buttonParamsJson: JSON.stringify({ display_text: 'Berita Terkini', id: '.berita' })
-              },
-              {
-                name: 'quick_reply',
-                buttonParamsJson: JSON.stringify({ display_text: 'Lihat Catatan', id: '.catatan' })
-              }
-            ]
-        });
+        const msgList = generateWAMessageFromContent(from, interactiveMessage, { userJid: sock.user?.id });
+        await sock.relayMessage(from, msgList.message, { messageId: msgList.key.id });
         return;
     }
 

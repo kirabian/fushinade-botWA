@@ -77,7 +77,7 @@ async function startBot() {
     auth: state,
     logger: pino({ level: 'silent' }),
     version: [2, 3000, 1035194821], // HARDCODED LATEST VERSION TO BYPASS 405 ERROR
-    browser: ['Mac OS', 'Safari', '14.0.0'], // Bypass VPS IP Block
+    browser: ['Ubuntu', 'Chrome', '20.0.0'], // Bypass VPS IP Block
   });
   
   console.log(chalk.cyanBright('⏳ Membangun koneksi ke server WhatsApp... (Menunggu QR Code)'));

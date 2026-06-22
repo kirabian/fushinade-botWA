@@ -111,6 +111,7 @@ async function startBot() {
   sock.ev.on('creds.update', saveCreds);
   
   sock.ev.on('messages.upsert', async m => {
+    if (m.type !== 'notify') return;
     const msg = m.messages?.[0];
     if (!msg) return;
 

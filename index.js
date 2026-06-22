@@ -142,72 +142,50 @@ async function startBot() {
     }
 
     if (command === '.menu') {
-        const interactiveMessage = {
-            viewOnceMessage: {
-                message: {
-                    messageContextInfo: {
-                        deviceListMetadata: {},
-                        deviceListMetadataVersion: 2
-                    },
-                    interactiveMessage: proto.Message.InteractiveMessage.create({
-                        body: proto.Message.InteractiveMessage.Body.create({
-                            text: `*🤖 FUSHINADE BOT MENU 🤖*\n\nSilakan pilih menu di bawah ini untuk melihat fitur yang tersedia.`
-                        }),
-                        footer: proto.Message.InteractiveMessage.Footer.create({
-                            text: "© Fushinade Bot 2025"
-                        }),
-                        header: proto.Message.InteractiveMessage.Header.create({
-                            title: "Hello!",
-                            subtitle: "Pilih opsi dari menu di bawah:",
-                            hasMediaAttachment: false
-                        }),
-                        nativeFlowMessage: proto.Message.InteractiveMessage.NativeFlowMessage.create({
-                            buttons: [
-                                {
-                                    name: "single_select",
-                                    buttonParamsJson: JSON.stringify({
-                                        title: "Menu",
-                                        sections: [
-                                            {
-                                                title: "🤖 AI & Chatbot",
-                                                rows: [
-                                                    { title: "Chat AI (.ai)", description: "Contoh: .ai halo", id: ".ai Halo" },
-                                                    { title: "Tanya AI (.ask)", description: "Contoh: .ask siapa kamu", id: ".ask Halo" }
-                                                ]
-                                            },
-                                            {
-                                                title: "🛠️ Utilities",
-                                                rows: [
-                                                    { title: "Ping Bot", description: "Cek respon bot", id: ".ping" },
-                                                    { title: "Schedule", description: "Contoh: .schedule 1 08:00 pesan", id: ".schedule" }
-                                                ]
-                                            },
-                                            {
-                                                title: "📝 Catatan (To-Do)",
-                                                rows: [
-                                                    { title: "Lihat Catatan", description: "Menampilkan list catatan", id: ".catatan" },
-                                                    { title: "Tambah Catatan", description: "Contoh: .catat belanja", id: ".catat" }
-                                                ]
-                                            },
-                                            {
-                                                title: "🌐 Info & Berita",
-                                                rows: [
-                                                    { title: "Berita Terkini", description: "Menampilkan berita terbaru", id: ".berita" },
-                                                    { title: "Cek Cuaca", description: "Contoh: .cuaca Jakarta", id: ".cuaca Jakarta" }
-                                                ]
-                                            }
-                                        ]
-                                    })
-                                }
-                            ]
-                        })
-                    })
-                }
-            }
-        };
+        const menuText = `*🤖 FUSHINADE BOT MENU 🤖*\n\nSilakan klik tombol "Menu" di bawah ini untuk melihat fitur yang tersedia.`;
 
-        const msgList = generateWAMessageFromContent(from, interactiveMessage, { userJid: sock.user?.id });
-        await sock.relayMessage(from, msgList.message, { messageId: msgList.key.id });
+        await sock.sendMessage(from, {
+            text: menuText,
+            footer: '© Fushinade Bot 2025',
+            interactiveButtons: [
+              {
+                name: 'single_select',
+                buttonParamsJson: JSON.stringify({
+                  title: 'Menu',
+                  sections: [
+                    {
+                      title: "🤖 AI & Chatbot",
+                      rows: [
+                        { title: "Chat AI (.ai)", description: "Contoh: .ai halo", id: ".ai Halo" },
+                        { title: "Tanya AI (.ask)", description: "Contoh: .ask siapa kamu", id: ".ask Halo" }
+                      ]
+                    },
+                    {
+                      title: "🛠️ Utilities",
+                      rows: [
+                        { title: "Ping Bot", description: "Cek respon bot", id: ".ping" },
+                        { title: "Schedule", description: "Contoh: .schedule 1 08:00 pesan", id: ".schedule" }
+                      ]
+                    },
+                    {
+                      title: "📝 Catatan (To-Do)",
+                      rows: [
+                        { title: "Lihat Catatan", description: "Menampilkan list catatan", id: ".catatan" },
+                        { title: "Tambah Catatan", description: "Contoh: .catat belanja", id: ".catat belanja" }
+                      ]
+                    },
+                    {
+                      title: "🌐 Info & Berita",
+                      rows: [
+                        { title: "Berita Terkini", description: "Menampilkan berita terbaru", id: ".berita" },
+                        { title: "Cek Cuaca", description: "Contoh: .cuaca Jakarta", id: ".cuaca Jakarta" }
+                      ]
+                    }
+                  ]
+                })
+              }
+            ]
+        }, { quoted: msg });
         return;
     }
 

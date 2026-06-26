@@ -99,11 +99,6 @@ async function startBot() {
     const text = body.trim();
     const command = text;
 
-    if (msg.fromMe && msg.to !== msg.from) {
-        // Jangan merespon pesan otomatis yang dikirim oleh bot
-        return;
-    }
-
     if (command.toLowerCase() === 'ping' || command.toLowerCase() === '.ping') {
         await msg.reply('pong! Bot is aktif dan merespon.');
         return;

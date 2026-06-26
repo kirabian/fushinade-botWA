@@ -1,4 +1,5 @@
-import { makeWASocket, useMultiFileAuthState, DisconnectReason, Browsers, proto, generateWAMessageFromContent } from 'atexovi-baileys';
+import pkg from 'whatsapp-web.js';
+const { Client, LocalAuth } = pkg;
 import pino from 'pino';
 import fs from 'fs';
 import path from 'path';
@@ -49,8 +50,6 @@ async function generateResilientGroqContent(messages) {
     throw new Error(`Semua model gagal. Error terakhir: ${lastError.message}`);
 }
 
-const authDir = path.join(process.cwd(), 'session');
-
 function centerText(text) {
   const lines = text.split('\n');
   const width = process.stdout.columns || 80;
@@ -71,122 +70,135 @@ function showBanner() {
 async function startBot() {
   showBanner();
 
-  const { state, saveCreds } = await useMultiFileAuthState(authDir);
-
-  const sock = makeWASocket({
-    auth: state,
-    logger: pino({ level: 'silent' }),
-    version: [2, 3000, 1035194821], // HARDCODED LATEST VERSION TO BYPASS 405 ERROR
-    browser: ['Ubuntu', 'Chrome', '20.0.0'], // Bypass VPS IP Block
+  const client = new Client({
+    authStrategy: new LocalAuth({ dataPath: './session' }),
+    puppeteer: {
+      args: ['--no-sandbox', '--disable-setuid-sandbox']
+    }
   });
-  
+
   console.log(chalk.cyanBright('⏳ Membangun koneksi ke server WhatsApp... (Menunggu QR Code)'));
 
-  sock.ev.on('connection.update', async (update) => {
-    const { connection, lastDisconnect, qr } = update;
-    
-    if (qr) {
-        console.log(chalk.cyan('\n📱 Silakan scan QR Code di bawah ini menggunakan WhatsApp Anda:'));
-        qrcode.generate(qr, { small: true });
-    }
-
-    if (connection === 'open') {
-      console.log(chalk.greenBright('\n✅ Connected to WhatsApp!'));
-      console.log(chalk.cyan(`👤 User: ${sock.user?.id || 'Unknown'}`));
-    } else if (connection === 'close') {
-      const reason = lastDisconnect?.error?.output?.statusCode;
-      const shouldReconnect = reason !== DisconnectReason.loggedOut;
-      if (shouldReconnect) {
-        console.log(chalk.yellow('🔁 Connection lost. Reconnecting...'));
-        setTimeout(() => startBot(), 2000);
-      } else {
-        console.log(chalk.red('❌ Sesi tidak valid / Ter-logout. Menghapus sesi lama...'));
-        try { fs.rmSync(authDir, { recursive: true, force: true }); } catch(e) {}
-        console.log(chalk.green('✅ Sesi lama dihapus. Silakan jalankan ulang bot.'));
-        process.exit(1);
-      }
-    }
+  client.on('qr', (qr) => {
+    console.log(chalk.cyan('\n📱 Silakan scan QR Code di bawah ini menggunakan WhatsApp Anda:'));
+    qrcode.generate(qr, { small: true });
   });
 
-  sock.ev.on('creds.update', saveCreds);
-  
-  sock.ev.on('messages.upsert', async m => {
-    if (m.type !== 'notify') return;
-    const msg = m.messages?.[0];
-    if (!msg) return;
+  client.on('ready', () => {
+    console.log(chalk.greenBright('\n✅ Connected to WhatsApp!'));
+    console.log(chalk.cyan(`👤 User: ${client.info.wid.user}`));
+  });
 
-    const from = msg.key.remoteJid;
-    // Jangan proses jika pesan dari bot sendiri KECUALI jika dikirim ke "Message yourself"
-    if (msg.key.fromMe && from !== sock.user?.id.split(':')[0] + '@s.whatsapp.net') {
-       // Kita biarkan sementara agar Anda bisa ngetes dari HP sendiri.
-       // Tapi aslinya: if (!msg || msg.key.fromMe) return;
-    }
-    const body = msg.message?.conversation || msg.message?.extendedTextMessage?.text || msg.message?.imageMessage?.caption || "";
+  client.on('message_create', async msg => {
+    const from = msg.from;
+    const body = msg.body || "";
     const text = body.trim();
-    
-    let rowId;
-    try {
-      if (msg.message?.interactiveResponseMessage?.nativeFlowResponseMessage) {
-        rowId = JSON.parse(msg.message.interactiveResponseMessage.nativeFlowResponseMessage.paramsJson).id;
-      } else if (msg.message?.listResponseMessage?.singleSelectReply?.selectedRowId) {
-        rowId = msg.message.listResponseMessage.singleSelectReply.selectedRowId;
-      } else if (msg.message?.buttonsResponseMessage?.selectedButtonId) {
-        rowId = msg.message.buttonsResponseMessage.selectedButtonId;
-      }
-    } catch {}
-
-    const command = rowId ? rowId : text;
+    const command = text;
 
     if (command.toLowerCase().includes('ping')) {
-        await sock.sendMessage(from, { text: 'pong! Bot is aktif dan merespon.' }, { quoted: msg });
+        await msg.reply('pong! Bot is aktif dan merespon.');
         return;
     }
 
     if (command === '.menu') {
-        const menuText = `*🤖 FUSHINADE BOT MENU 🤖*\n\nSilakan klik tombol "Menu" di bawah ini untuk melihat fitur yang tersedia.`;
+        const menuText = `*🤖 FUSHINADE BOT MENU 🤖*\n
+*🤖 AI & Chatbot*
+- .ai <pesan> : Chat AI (Contoh: .ai halo)
+- .ask <pesan> : Tanya AI (Contoh: .ask siapa kamu)
 
-        await sock.sendMessage(from, {
-            text: menuText,
-            footer: '© Fushinade Bot 2025',
-            interactiveButtons: [
-              {
-                name: 'single_select',
-                buttonParamsJson: JSON.stringify({
-                  title: 'Menu',
-                  sections: [
-                    {
-                      title: "🤖 AI & Chatbot",
-                      rows: [
-                        { title: "Chat AI (.ai)", description: "Contoh: .ai halo", id: ".ai Halo" },
-                        { title: "Tanya AI (.ask)", description: "Contoh: .ask siapa kamu", id: ".ask Halo" }
-                      ]
-                    },
-                    {
-                      title: "🛠️ Utilities",
-                      rows: [
-                        { title: "Ping Bot", description: "Cek respon bot", id: ".ping" },
-                        { title: "Schedule", description: "Contoh: .schedule 1 08:00 pesan", id: ".schedule" }
-                      ]
-                    },
-                    {
-                      title: "📝 Catatan (To-Do)",
-                      rows: [
-                        { title: "Lihat Catatan", description: "Menampilkan list catatan", id: ".catatan" },
-                        { title: "Tambah Catatan", description: "Contoh: .catat belanja", id: ".catat belanja" }
-                      ]
-                    },
-                    {
-                      title: "🌐 Info & Berita",
-                      rows: [
-                        { title: "Berita Terkini", description: "Menampilkan berita terbaru", id: ".berita" },
-                        { title: "Cek Cuaca", description: "Contoh: .cuaca Jakarta", id: ".cuaca Jakarta" }
-                      ]
+*🛠️ Utilities*
+- .ping : Cek respon bot
+- .schedule <waktu> <pesan> : (Contoh: .schedule 1 08:00 pesan)
+- .stikerteks <pesan> : Buat stiker dari teks (Contoh: .stikerteks Halo)
+
+*📝 Catatan (To-Do)*
+- .catatan : Lihat Catatan
+- .catat <pesan> : Tambah Catatan (Contoh: .catat belanja)
+- .hapuscatatan <nomor> : Menghapus Catatan
+
+*🌐 Info & Berita*
+- .berita : Berita Terkini
+- .cuaca <kota> : Cek Cuaca (Contoh: .cuaca Jakarta)
+
+© Fushinade Bot 2025`;
+
+        await msg.reply(menuText);
+        return;
+    }
+
+    if (command.startsWith('.stikerteks ')) {
+        const textToSticker = command.replace('.stikerteks ', '').trim();
+        if (!textToSticker) {
+            await msg.reply('Teksnya mana? Contoh: .stikerteks Halo bang');
+            return;
+        }
+
+        try {
+            const words = textToSticker.split(' ');
+            let lines = [];
+            let currentLine = "";
+            const maxCharsPerLine = 12; // Perkiraan aman untuk font besar
+
+            words.forEach(word => {
+                // Handle kata yang sangat panjang
+                if (word.length > maxCharsPerLine) {
+                    if (currentLine) lines.push(currentLine.trim());
+                    // Potong kata yang kepanjangan
+                    const chunks = word.match(new RegExp(`.{1,${maxCharsPerLine}}`, 'g'));
+                    if (chunks) {
+                        for (let i = 0; i < chunks.length - 1; i++) {
+                            lines.push(chunks[i]);
+                        }
+                        currentLine = chunks[chunks.length - 1] + " ";
                     }
-                  ]
-                })
-              }
-            ]
-        }, { quoted: msg });
+                } else if ((currentLine + word).length > maxCharsPerLine) {
+                    if (currentLine) lines.push(currentLine.trim());
+                    currentLine = word + " ";
+                } else {
+                    currentLine += word + " ";
+                }
+            });
+            if (currentLine) lines.push(currentLine.trim());
+
+            // Batasi jumlah baris agar tidak keluar kotak (max 7 baris)
+            if (lines.length > 7) {
+                lines = lines.slice(0, 7);
+                lines[6] = "...";
+            }
+
+            const lineHeight = 65;
+            const totalHeight = lines.length * lineHeight;
+            const startY = (512 - totalHeight) / 2 + (lineHeight / 2) - 10;
+
+            const tspans = lines.map((line, i) => {
+                // Escape karakter khusus XML
+                const safeLine = line.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+                return `<tspan x="256" y="${startY + i * lineHeight}">${safeLine}</tspan>`;
+            }).join('');
+
+            const svg = `
+            <svg width="512" height="512" xmlns="http://www.w3.org/2000/svg">
+                <rect width="100%" height="100%" fill="white" rx="40" ry="40"/>
+                <text font-family="Arial, sans-serif" font-weight="bold" font-size="55" fill="black" text-anchor="middle" dominant-baseline="middle">
+                    ${tspans}
+                </text>
+            </svg>`;
+
+            const svgBuffer = Buffer.from(svg);
+            const pngBuffer = await sharp(svgBuffer).png().toBuffer();
+            
+            const { MessageMedia } = pkg;
+            const media = new MessageMedia('image/png', pngBuffer.toString('base64'), 'sticker.png');
+            
+            await msg.reply(media, undefined, { 
+                sendMediaAsSticker: true,
+                stickerName: 'Stiker Teks',
+                stickerAuthor: 'Fushinade Bot' 
+            });
+        } catch (error) {
+            console.error(error);
+            await msg.reply('Maaf, gagal membuat stiker teks.');
+        }
         return;
     }
 
@@ -206,14 +218,14 @@ async function startBot() {
             const responseText = await generateResilientGroqContent(chatHistories[senderId]);
             chatHistories[senderId].push({ role: "assistant", content: responseText });
             if (chatHistories[senderId].length > 10) chatHistories[senderId].splice(1, 1);
-            await sock.sendMessage(from, { text: responseText }, { quoted: msg });
+            await msg.reply(responseText);
         } catch (error) {
             chatHistories[senderId].pop();
             console.error(error);
             if (error.message === "GROQ_QUOTA_EXCEEDED") {
-                await sock.sendMessage(from, { text: 'Maaf, kuota API Groq (Limit Rate) Anda sedang habis. Silakan coba beberapa saat lagi.' });
+                await msg.reply('Maaf, kuota API Groq (Limit Rate) Anda sedang habis. Silakan coba beberapa saat lagi.');
             } else {
-                await sock.sendMessage(from, { text: 'Maaf, AI sedang mengalami gangguan / tidak ada model yang tersedia.' });
+                await msg.reply('Maaf, AI sedang mengalami gangguan / tidak ada model yang tersedia.');
             }
         }
         return;
@@ -226,7 +238,7 @@ async function startBot() {
         if (!todos[from]) todos[from] = [];
         todos[from].push(item);
         fs.writeFileSync('./todos.json', JSON.stringify(todos, null, 2));
-        await sock.sendMessage(from, { text: `Catatan ditambahkan! Ketik .catatan untuk melihat list.` }, { quoted: msg });
+        await msg.reply(`Catatan ditambahkan! Ketik .catatan untuk melihat list.`);
         return;
     }
 
@@ -234,13 +246,13 @@ async function startBot() {
         let todos = {};
         if (fs.existsSync('./todos.json')) todos = JSON.parse(fs.readFileSync('./todos.json'));
         if (!todos[from] || todos[from].length === 0) {
-            await sock.sendMessage(from, { text: 'Kamu tidak punya catatan.' }, { quoted: msg });
+            await msg.reply('Kamu tidak punya catatan.');
             return;
         }
         let replyTxt = '*Daftar Catatanmu:*\n';
         todos[from].forEach((item, index) => { replyTxt += `${index + 1}. ${item}\n`; });
         replyTxt += '\n_(Ketik .hapuscatatan <nomor> untuk menghapus)_';
-        await sock.sendMessage(from, { text: replyTxt }, { quoted: msg });
+        await msg.reply(replyTxt);
         return;
     }
 
@@ -249,12 +261,12 @@ async function startBot() {
         let todos = {};
         if (fs.existsSync('./todos.json')) todos = JSON.parse(fs.readFileSync('./todos.json'));
         if (!todos[from] || todos[from].length === 0 || isNaN(idx) || idx < 0 || idx >= todos[from].length) {
-            await sock.sendMessage(from, { text: 'Nomor catatan tidak valid.' }, { quoted: msg });
+            await msg.reply('Nomor catatan tidak valid.');
             return;
         }
         const removed = todos[from].splice(idx, 1);
         fs.writeFileSync('./todos.json', JSON.stringify(todos, null, 2));
-        await sock.sendMessage(from, { text: `Catatan "${removed}" berhasil dihapus.` }, { quoted: msg });
+        await msg.reply(`Catatan "${removed}" berhasil dihapus.`);
         return;
     }
 
@@ -262,11 +274,11 @@ async function startBot() {
         const city = command.replace('.cuaca ', '').trim();
         weather.find({search: city, degreeType: 'C'}, async function(err, result) {
             if(err || result.length === 0) {
-                await sock.sendMessage(from, { text: 'Maaf, kota tidak ditemukan.' });
+                await msg.reply('Maaf, kota tidak ditemukan.');
                 return;
             }
             const current = result[0].current;
-            await sock.sendMessage(from, { text: `*Cuaca di ${current.observationpoint}*\nSuhu: ${current.temperature}°C\nKondisi: ${current.skytext}\nKelembapan: ${current.humidity}%` });
+            await msg.reply(`*Cuaca di ${current.observationpoint}*\nSuhu: ${current.temperature}°C\nKondisi: ${current.skytext}\nKelembapan: ${current.humidity}%`);
         });
         return;
     }
@@ -279,20 +291,26 @@ async function startBot() {
             for (let i = 0; i < 5 && i < feed.items.length; i++) {
                 replyTxt += `📰 *${feed.items[i].title}*\n${feed.items[i].link}\n\n`;
             }
-            await sock.sendMessage(from, { text: replyTxt });
+            await msg.reply(replyTxt);
         } catch (error) {
             console.error(error);
-            await sock.sendMessage(from, { text: 'Maaf, gagal mengambil berita.' });
+            await msg.reply('Maaf, gagal mengambil berita.');
         }
         return;
     }
 
     if (command.startsWith('.tiktok ') || command.startsWith('.ig ') || command.startsWith('.yt ')) {
-        await sock.sendMessage(from, { text: '⏳ Fitur downloader membutuhkan API khusus yang belum dikonfigurasi.' }, { quoted: msg });
+        await msg.reply('⏳ Fitur downloader membutuhkan API khusus yang belum dikonfigurasi.');
         return;
     }
 
   });
+  
+  client.on('disconnected', (reason) => {
+    console.log(chalk.red('❌ Sesi terputus: ', reason));
+  });
+
+  client.initialize();
 }
 
 startBot();

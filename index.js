@@ -91,11 +91,20 @@ async function startBot() {
 
   client.on('message_create', async msg => {
     const from = msg.from;
+    
+    // Hanya merespon private chat, abaikan pesan grup
+    if (from.endsWith('@g.us')) return;
+
     const body = msg.body || "";
     const text = body.trim();
     const command = text;
 
-    if (command.toLowerCase().includes('ping')) {
+    if (msg.fromMe && msg.to !== msg.from) {
+        // Jangan merespon pesan otomatis yang dikirim oleh bot
+        return;
+    }
+
+    if (command.toLowerCase() === 'ping' || command.toLowerCase() === '.ping') {
         await msg.reply('pong! Bot is aktif dan merespon.');
         return;
     }
@@ -167,19 +176,19 @@ async function startBot() {
             }
 
             const lineHeight = 65;
-            const totalHeight = lines.length * lineHeight;
-            const startY = (512 - totalHeight) / 2 + (lineHeight / 2) - 10;
+            const startY = 80; // Mulai dari atas dengan sedikit padding
 
             const tspans = lines.map((line, i) => {
                 // Escape karakter khusus XML
                 const safeLine = line.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-                return `<tspan x="256" y="${startY + i * lineHeight}">${safeLine}</tspan>`;
+                // x=30 untuk rata kiri dengan sedikit padding
+                return `<tspan x="30" y="${startY + i * lineHeight}">${safeLine}</tspan>`;
             }).join('');
 
             const svg = `
             <svg width="512" height="512" xmlns="http://www.w3.org/2000/svg">
-                <rect width="100%" height="100%" fill="white" rx="40" ry="40"/>
-                <text font-family="Arial, sans-serif" font-weight="bold" font-size="55" fill="black" text-anchor="middle" dominant-baseline="middle">
+                <rect width="100%" height="100%" fill="white" rx="15" ry="15"/>
+                <text font-family="Arial, sans-serif" font-weight="normal" font-size="65" fill="black" text-anchor="start">
                     ${tspans}
                 </text>
             </svg>`;

@@ -113,7 +113,9 @@ async function startBot() {
 *🛠️ Utilities*
 - .ping : Cek respon bot
 - .schedule <waktu> <pesan> : (Contoh: .schedule 1 08:00 pesan)
+- .stiker : Buat stiker dari gambar (Kirim/Balas gambar dengan .stiker)
 - .stikerteks <pesan> : Buat stiker dari teks (Contoh: .stikerteks Halo)
+- .toimg : Ubah stiker jadi gambar (Balas stiker dengan .toimg)
 
 *📝 Catatan (To-Do)*
 - .catatan : Lihat Catatan
@@ -127,6 +129,60 @@ async function startBot() {
 © Fushinade Bot 2025`;
 
         await msg.reply(menuText);
+        return;
+    }
+
+    if (command === '.stiker' || command === '.sticker') {
+        let targetMsg = msg;
+        if (!msg.hasMedia && msg.hasQuotedMsg) {
+            targetMsg = await msg.getQuotedMessage();
+        }
+
+        if (targetMsg.hasMedia) {
+            try {
+                const media = await targetMsg.downloadMedia();
+                if (media.mimetype.includes('image') || media.mimetype.includes('video')) {
+                    await msg.reply(media, undefined, { 
+                        sendMediaAsSticker: true,
+                        stickerName: 'Fushinade Bot',
+                        stickerAuthor: 'Fushinade Bot'
+                    });
+                } else {
+                    await msg.reply('Format media tidak didukung untuk dijadikan stiker.');
+                }
+            } catch (err) {
+                console.error(err);
+                await msg.reply('Gagal mengunduh atau membuat stiker.');
+            }
+        } else {
+            await msg.reply('Kirim gambar/video pendek dengan caption *.stiker* atau balas gambar/video dengan *.stiker*.');
+        }
+        return;
+    }
+
+    if (command === '.toimg' || command === '.foto' || command === '.image') {
+        if (msg.hasQuotedMsg) {
+            const quotedMsg = await msg.getQuotedMessage();
+            if (quotedMsg.hasMedia) {
+                try {
+                    const media = await quotedMsg.downloadMedia();
+                    // Stiker di WhatsApp biasanya berformat image/webp
+                    if (media.mimetype === 'image/webp') {
+                        // Mengirim kembali sebagai gambar biasa
+                        await msg.reply(media);
+                    } else {
+                        await msg.reply('Pesan yang dibalas bukan stiker!');
+                    }
+                } catch (err) {
+                    console.error(err);
+                    await msg.reply('Gagal mengubah stiker menjadi gambar.');
+                }
+            } else {
+                await msg.reply('Balas stiker dengan perintah *.toimg*');
+            }
+        } else {
+            await msg.reply('Balas stiker dengan perintah *.toimg* untuk mengubahnya menjadi gambar.');
+        }
         return;
     }
 

@@ -50,6 +50,43 @@ async function generateResilientGroqContent(messages) {
     throw new Error(`Semua model gagal. Error terakhir: ${lastError.message}`);
 }
 
+async function generateQwenVisionContent(prompt, base64Image, mimeType) {
+    const url = "https://dashscope-intl.aliyuncs.com/compatible-mode/v1/chat/completions";
+    // API Key QwenCloud
+    const apiKey = process.env.QWEN_API_KEY || 'sk-ws-H.LDDRLE.IiUg.MEQCIB6x81yiZJDmT0zgNzd5oGp1uCX0QgoPCihDz2gzePifAiA2eMX5lA6e_7ZbMmyidb5tl8sr_Va-urNbxpey4RhlmA';
+    
+    const payload = {
+        model: "qwen-vl-plus",
+        messages: [
+            {
+                role: "user",
+                content: [
+                    { type: "text", text: prompt || "Tolong jelaskan gambar ini dengan detail." },
+                    { type: "image_url", image_url: { url: `data:${mimeType};base64,${base64Image}` } }
+                ]
+            }
+        ],
+        temperature: 0.1
+    };
+
+    const response = await fetch(url, {
+        method: "POST",
+        headers: {
+            "Authorization": `Bearer ${apiKey}`,
+            "Content-Type": "application/json"
+        },
+        body: JSON.stringify(payload)
+    });
+
+    if (!response.ok) {
+        const err = await response.text();
+        throw new Error(`Qwen API Error: ${err}`);
+    }
+
+    const data = await response.json();
+    return data.choices[0].message.content;
+}
+
 function centerText(text) {
   const lines = text.split('\n');
   const width = process.stdout.columns || 80;
@@ -262,9 +299,36 @@ async function startBot() {
         return;
     }
 
-    if (command.startsWith('.ai ') || command.startsWith('.ask ')) {
-        const prompt = command.replace(/^\.(ai|ask)\s+/, '');
+    if (command.startsWith('.ai') || command.startsWith('.ask')) {
+        const prompt = command.replace(/^\.(ai|ask)\s*/, '').trim();
         const senderId = from;
+
+        // Handle Vision / Image Analysis via Qwen
+        let targetMsg = msg;
+        if (!msg.hasMedia && msg.hasQuotedMsg) {
+            targetMsg = await msg.getQuotedMessage();
+        }
+        
+        if (targetMsg.hasMedia) {
+            try {
+                const media = await targetMsg.downloadMedia();
+                if (media && media.mimetype.includes('image')) {
+                    await msg.reply('👁️ *Vision AI (Qwen):* Sedang menganalisis gambar...');
+                    const responseText = await generateQwenVisionContent(prompt, media.data, media.mimetype);
+                    await msg.reply(responseText);
+                    return;
+                }
+            } catch (err) {
+                console.error("Gagal mendownload media untuk vision", err);
+                await msg.reply('Maaf, AI Vision gagal menganalisis gambar Anda.');
+                return;
+            }
+        }
+
+        if (!prompt) {
+            await msg.reply('Mau tanya apa? Contoh: .ai halo atau kirim/balas gambar dengan caption .ai');
+            return;
+        }
 
         if (!chatHistories[senderId]) {
             const currentDate = moment().tz('Asia/Jakarta').format('DD MMMM YYYY');

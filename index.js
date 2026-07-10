@@ -99,7 +99,7 @@ async function generateQwenImage(prompt) {
             'Content-Type': 'application/json'
         },
         body: JSON.stringify({
-            model: 'wanx-v1', // Model standar DashScope Text-to-Image
+            model: 'wan2.7-image-pro', // Menggunakan model dari daftar Craftground
             input: { prompt: prompt },
             parameters: { size: '1024*1024', n: 1 }
         })

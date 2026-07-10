@@ -431,10 +431,11 @@ async function startBot() {
         }
         await msg.reply('⏳ Sedang mendownload video TikTok...');
         try {
-            const response = await fetch(`https://www.tikwm.com/api/?url=${url}&hd=1`);
+            const response = await fetch(`https://www.tikwm.com/api/?url=${url}`);
             const data = await response.json();
             if (data.code === 0 && data.data) {
-                const videoUrl = data.data.hdplay || data.data.play;
+                // Gunakan video standar (play) bukan HD (hdplay) agar tidak memberatkan server & WA
+                const videoUrl = data.data.play || data.data.hdplay;
                 const { MessageMedia } = pkg;
                 const media = await MessageMedia.fromUrl(videoUrl, { unsafeMime: true });
                 await msg.reply(media, undefined, { caption: `✅ Download Berhasil!\n\nJudul: ${data.data.title || '-'}` });
@@ -443,7 +444,7 @@ async function startBot() {
             }
         } catch (err) {
             console.error(err);
-            await msg.reply('❌ Terjadi kesalahan pada server downloader TikTok.');
+            await msg.reply('❌ Terjadi kesalahan pada server downloader TikTok (Video mungkin terlalu besar).');
         }
         return;
     }

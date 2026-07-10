@@ -92,8 +92,9 @@ async function startBot() {
   client.on('message_create', async msg => {
     const from = msg.from;
     
-    // Hanya merespon private chat, abaikan pesan grup
-    if (from.endsWith('@g.us')) return;
+    // Hanya merespon pesan dari nomor 085811683696 (di grup maupun private)
+    const sender = msg.author || msg.from;
+    if (sender !== '6285811683696@c.us') return;
 
     const body = msg.body || "";
     const text = body.trim();

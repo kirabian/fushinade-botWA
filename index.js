@@ -90,49 +90,30 @@ async function generateQwenVisionContent(prompt, base64Image, mimeType) {
 async function generateQwenImage(prompt) {
     const apiKey = process.env.QWEN_API_KEY || 'sk-ws-H.LDDRLE.IiUg.MEQCIB6x81yiZJDmT0zgNzd5oGp1uCX0QgoPCihDz2gzePifAiA2eMX5lA6e_7ZbMmyidb5tl8sr_Va-urNbxpey4RhlmA';
     
-    // 1. Submit task generasi gambar secara asinkron
-    const createRes = await fetch('https://dashscope-intl.aliyuncs.com/api/v1/services/aigc/text2image/image-synthesis', {
+    const response = await fetch('https://dashscope-intl.aliyuncs.com/compatible-mode/v1/images/generations', {
         method: 'POST',
         headers: {
-            'X-DashScope-Async': 'enable',
             'Authorization': `Bearer ${apiKey}`,
             'Content-Type': 'application/json'
         },
         body: JSON.stringify({
-            model: 'wan2.7-image-pro', // Menggunakan model dari daftar Craftground
-            input: { prompt: prompt },
-            parameters: { size: '1024*1024', n: 1 }
+            model: 'wan2.7-image-pro', // Atau qwen-image-2.0-pro
+            prompt: prompt,
+            n: 1,
+            size: '1024x1024' // Menggunakan format standar OpenAI (huruf x kecil)
         })
     });
 
-    if (!createRes.ok) {
-        throw new Error(`Gagal memanggil API Gambar: ${await createRes.text()}`);
+    if (!response.ok) {
+        throw new Error(`Error API Gambar: ${await response.text()}`);
     }
 
-    const taskData = await createRes.json();
-    if (!taskData.output || !taskData.output.task_id) {
-        throw new Error(`Gagal mendapatkan Task ID dari Qwen.`);
+    const data = await response.json();
+    if (data.data && data.data.length > 0 && data.data[0].url) {
+        return data.data[0].url;
+    } else {
+        throw new Error('Respon API tidak memuat gambar.');
     }
-    const taskId = taskData.output.task_id;
-
-    // 2. Polling status task setiap 3 detik hingga selesai
-    for (let i = 0; i < 20; i++) {
-        await new Promise(resolve => setTimeout(resolve, 3000));
-        
-        const checkRes = await fetch(`https://dashscope-intl.aliyuncs.com/api/v1/tasks/${taskId}`, {
-            headers: { 'Authorization': `Bearer ${apiKey}` }
-        });
-        
-        const checkData = await checkRes.json();
-        const status = checkData.output.task_status;
-        
-        if (status === 'SUCCEEDED') {
-            return checkData.output.results[0].url;
-        } else if (status === 'FAILED' || status === 'CANCELED') {
-            throw new Error(`Proses gagal: ${checkData.output.message || 'Unknown error'}`);
-        }
-    }
-    throw new Error('Proses pembuatan gambar memakan waktu terlalu lama (Timeout).');
 }
 
 function centerText(text) {

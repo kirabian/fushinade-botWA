@@ -107,7 +107,8 @@ async function generateImage(prompt) {
     }
 
     const encodedPrompt = encodeURIComponent(prompt);
-    const imageUrl = `https://image.pollinations.ai/prompt/${encodedPrompt}?width=${width}&height=${height}&nologo=true`;
+    // Tambahkan parameter model=flux agar AI secara native membuat gambar memanjang tanpa menarik (stretch) gambar persegi
+    const imageUrl = `https://image.pollinations.ai/prompt/${encodedPrompt}?width=${width}&height=${height}&nologo=true&model=flux`;
     return imageUrl;
 }
 

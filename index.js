@@ -87,50 +87,11 @@ async function generateQwenVisionContent(prompt, base64Image, mimeType) {
     return data.choices[0].message.content;
 }
 
-async function generateQwenImage(prompt) {
-    const apiKey = process.env.QWEN_API_KEY || 'sk-ws-H.LDDRLE.IiUg.MEQCIB6x81yiZJDmT0zgNzd5oGp1uCX0QgoPCihDz2gzePifAiA2eMX5lA6e_7ZbMmyidb5tl8sr_Va-urNbxpey4RhlmA';
-    
-    const createRes = await fetch('https://dashscope.aliyuncs.com/api/v1/services/aigc/text2image/image-synthesis', {
-        method: 'POST',
-        headers: {
-            'X-DashScope-Async': 'enable',
-            'Authorization': `Bearer ${apiKey}`,
-            'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({
-            model: 'qwen-image-2.0',
-            input: { prompt: prompt },
-            parameters: { size: '1024*1024', n: 1 }
-        })
-    });
-
-    if (!createRes.ok) {
-        throw new Error(`Error API Gambar: ${await createRes.text()}`);
-    }
-
-    const taskData = await createRes.json();
-    if (!taskData.output || !taskData.output.task_id) {
-        throw new Error(`Gagal mendapatkan Task ID dari Qwen.`);
-    }
-    const taskId = taskData.output.task_id;
-
-    for (let i = 0; i < 20; i++) {
-        await new Promise(resolve => setTimeout(resolve, 3000));
-        
-        const checkRes = await fetch(`https://dashscope.aliyuncs.com/api/v1/tasks/${taskId}`, {
-            headers: { 'Authorization': `Bearer ${apiKey}` }
-        });
-        
-        const checkData = await checkRes.json();
-        const status = checkData.output.task_status;
-        
-        if (status === 'SUCCEEDED') {
-            return checkData.output.results[0].url;
-        } else if (status === 'FAILED' || status === 'CANCELED') {
-            throw new Error(`Proses gagal: ${checkData.output.message || 'Unknown error'}`);
-        }
-    }
-    throw new Error('Timeout saat membuat gambar.');
+async function generateImage(prompt) {
+    // Menggunakan Pollinations AI (gratis, tanpa API Key, dan cepat)
+    const encodedPrompt = encodeURIComponent(prompt);
+    const imageUrl = `https://image.pollinations.ai/prompt/${encodedPrompt}?width=1024&height=1024&nologo=true`;
+    return imageUrl;
 }
 
 function centerText(text) {
@@ -408,9 +369,9 @@ async function startBot() {
             return;
         }
 
-        await msg.reply(`🎨 *AI Image Generator (Qwen):*\nSedang melukis gambar "${prompt}"...\n⏳ Mohon tunggu sekitar 15-30 detik.`);
+        await msg.reply(`🎨 *AI Image Generator:*\nSedang melukis gambar "${prompt}"...\n⏳ Mohon tunggu sebentar.`);
         try {
-            const imageUrl = await generateQwenImage(prompt);
+            const imageUrl = await generateImage(prompt);
             const { MessageMedia } = pkg;
             const media = await MessageMedia.fromUrl(imageUrl, { unsafeMime: true });
             await msg.reply(media, undefined, { caption: `✅ Gambar Selesai!\n\n🎨 Prompt: ${prompt}` });

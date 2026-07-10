@@ -88,9 +88,26 @@ async function generateQwenVisionContent(prompt, base64Image, mimeType) {
 }
 
 async function generateImage(prompt) {
-    // Menggunakan Pollinations AI (gratis, tanpa API Key, dan cepat)
+    let width = 1024;
+    let height = 1024;
+
+    // Deteksi permintaan rasio dari prompt
+    if (prompt.match(/16:9/)) {
+        width = 1280;
+        height = 720;
+    } else if (prompt.match(/9:16/)) {
+        width = 720;
+        height = 1280;
+    } else if (prompt.match(/4:3/)) {
+        width = 1024;
+        height = 768;
+    } else if (prompt.match(/3:4/)) {
+        width = 768;
+        height = 1024;
+    }
+
     const encodedPrompt = encodeURIComponent(prompt);
-    const imageUrl = `https://image.pollinations.ai/prompt/${encodedPrompt}?width=1024&height=1024&nologo=true`;
+    const imageUrl = `https://image.pollinations.ai/prompt/${encodedPrompt}?width=${width}&height=${height}&nologo=true`;
     return imageUrl;
 }
 

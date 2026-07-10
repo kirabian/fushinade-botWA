@@ -423,8 +423,81 @@ async function startBot() {
         return;
     }
 
-    if (command.startsWith('.tiktok ') || command.startsWith('.ig ') || command.startsWith('.yt ')) {
-        await msg.reply('⏳ Fitur downloader membutuhkan API khusus yang belum dikonfigurasi.');
+    if (command.startsWith('.tiktok ')) {
+        const url = command.replace('.tiktok ', '').trim();
+        if (!url.includes('tiktok.com')) {
+            await msg.reply('❌ Link tidak valid! Kirimkan link TikTok yang benar.');
+            return;
+        }
+        await msg.reply('⏳ Sedang mendownload video TikTok...');
+        try {
+            const response = await fetch(`https://www.tikwm.com/api/?url=${url}&hd=1`);
+            const data = await response.json();
+            if (data.code === 0 && data.data) {
+                const videoUrl = data.data.hdplay || data.data.play;
+                const { MessageMedia } = pkg;
+                const media = await MessageMedia.fromUrl(videoUrl, { unsafeMime: true });
+                await msg.reply(media, undefined, { caption: `✅ Download Berhasil!\n\nJudul: ${data.data.title || '-'}` });
+            } else {
+                await msg.reply('❌ Gagal mendapatkan video dari link tersebut. Pastikan video tidak di-private.');
+            }
+        } catch (err) {
+            console.error(err);
+            await msg.reply('❌ Terjadi kesalahan pada server downloader TikTok.');
+        }
+        return;
+    }
+
+    if (command.startsWith('.ig ')) {
+        const url = command.replace('.ig ', '').trim();
+        if (!url.includes('instagram.com')) {
+            await msg.reply('❌ Link tidak valid! Kirimkan link Instagram yang benar.');
+            return;
+        }
+        await msg.reply('⏳ Sedang mendownload video Instagram...');
+        try {
+            // Menggunakan API gratis Ryzendesu (alternatif: vreden)
+            const response = await fetch(`https://api.ryzendesu.vip/api/downloader/igdl?url=${url}`);
+            const data = await response.json();
+            
+            // Format response ryzendesu biasanya mengembalikan array URL media
+            if (data && data.url && data.url.length > 0) {
+                const videoUrl = data.url[0]; // Ambil slide pertama
+                const { MessageMedia } = pkg;
+                const media = await MessageMedia.fromUrl(videoUrl, { unsafeMime: true });
+                await msg.reply(media, undefined, { caption: '✅ Sukses Download Instagram!' });
+            } else {
+                await msg.reply('❌ Gagal mendownload. Pastikan akun IG tidak diprivate.');
+            }
+        } catch (err) {
+            console.error(err);
+            await msg.reply('❌ Terjadi kesalahan pada server downloader IG (Mungkin API gratis sedang limit/down).');
+        }
+        return;
+    }
+
+    if (command.startsWith('.yt ')) {
+        const url = command.replace('.yt ', '').trim();
+        if (!url.includes('youtube.com') && !url.includes('youtu.be')) {
+            await msg.reply('❌ Link tidak valid! Kirimkan link YouTube yang benar.');
+            return;
+        }
+        await msg.reply('⏳ Sedang mendownload video YouTube (Batas WA maksimal 16MB)...');
+        try {
+            const response = await fetch(`https://api.ryzendesu.vip/api/downloader/ytmp4?url=${url}`);
+            const data = await response.json();
+            if (data && data.url) {
+                const videoUrl = data.url;
+                const { MessageMedia } = pkg;
+                const media = await MessageMedia.fromUrl(videoUrl, { unsafeMime: true });
+                await msg.reply(media, undefined, { caption: `✅ Sukses Download YouTube!` });
+            } else {
+                await msg.reply('❌ Gagal mendownload video YouTube ini.');
+            }
+        } catch (err) {
+            console.error(err);
+            await msg.reply('❌ Terjadi kesalahan atau ukuran video terlalu besar untuk dikirim via WA.');
+        }
         return;
     }
 
